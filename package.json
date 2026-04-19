@@ -1,5 +1,15 @@
 {
-  "dependencies": {
-    "firebase": "^12.12.0"
+  "name": "car-qr-monolith",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:frontend": "cd scanner-app && npm install && npm run build",
+    "build:backend": "cd functions && npm install && npm run build",
+    "build": "npm run build:frontend && npm run build:backend",
+    "start": "cd functions && npm start",
+    "dev": "cd functions && npm run dev"
+  },
+  "engines": {
+    "node": "18"
   }
 }
