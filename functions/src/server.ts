@@ -21,11 +21,13 @@ app.use('/api/scanner', publicApp);
 app.use('/api/user', userApp);
 
 // Serve Frontend Vite App
-// Mounts the 'dist' directory
-let frontendBuildPath = path.join(__dirname, "../../dist");
+let frontendBuildPath = path.join(__dirname, "../dist");
 
-// Check common cloud paths
-if (!fs.existsSync(frontendBuildPath)) {
+// Fallback checks for local and Vercel environments
+if (!fs.existsSync(path.join(frontendBuildPath, "index.html"))) {
+  frontendBuildPath = path.join(process.cwd(), "functions/dist");
+}
+if (!fs.existsSync(path.join(frontendBuildPath, "index.html"))) {
   frontendBuildPath = path.join(process.cwd(), "dist");
 }
 
