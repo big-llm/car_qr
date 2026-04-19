@@ -9,7 +9,7 @@
     "start": "node lib/server.js"
   },
   "engines": {
-    "node": "18"
+    "node": "24.x"
   },
   "dependencies": {
     "cors": "^2.8.5",
