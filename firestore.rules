@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is an admin
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+
+    // Check if the user is accessing their own data
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Admins can do everything
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // User rules
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId);
+      // Only admins can create/update users (to prevent privilege escalation).
+      // Basic profile creation is often handled in Cloud Functions to securely inject custom claims.
+      allow write: if isAdmin();
+    }
+
+    // Vehicle rules
+    match /vehicles/{vehicleId} {
+      // Users can read their own vehicles
+      allow read: if isOwner(resource.data.userId);
+      // Users shouldn't be able to write directly to avoid tampering QR codes/details, 
+      // they should go through the API/Cloud Functions for safety.
+      allow write: if isAdmin();
+    }
+
+    // Alert rules
+    match /alerts/{alertId} {
+      // Vehicle owner can read alerts sent to their vehicles
+      allow read: if isAuthenticated() && exists(/databases/$(database)/documents/vehicles/$(resource.data.vehicleId)) 
+                    && get(/databases/$(database)/documents/vehicles/$(resource.data.vehicleId)).data.userId == request.auth.uid;
+      // Nobody except Admin/Functions can write or update alerts directly. Alerts should be triggered via endpoints/Functions.
+      allow write: if false; 
+    }
+  }
+}
