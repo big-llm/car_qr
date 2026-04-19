@@ -113,9 +113,9 @@ app.post(
          }
       });
 
-      // 2. Transmit Alert
-      const result = await processNewAlert(token, type, senderPhone);
-      res.status(200).json({ ...result, alertId: alertRef.id });
+      // 2. Transmit Alert asynchronously without waiting, or wait if needed
+      await processNewAlert(alertRef.id, alertData);
+      res.status(200).json({ success: true, alertId: alertRef.id });
     } catch (error: any) {
       console.error("Alert generation error:", error);
       res.status(500).json({ error: "Internal Server Error" });
