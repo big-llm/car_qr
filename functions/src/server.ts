@@ -21,19 +21,24 @@ app.use('/api/scanner', publicApp);
 app.use('/api/user', userApp);
 
 // Serve Frontend Vite App
-// Mounts the 'dist' directory created by Vite
-let frontendBuildPath = path.join(__dirname, "../../scanner-app/dist");
+// Mounts the 'dist' directory
+let frontendBuildPath = path.join(__dirname, "../../dist");
 
-// Cloud check: If the directory above doesn't exist, try local relative (for Vercel deployment structure)
+// Check common cloud paths
 if (!fs.existsSync(frontendBuildPath)) {
-  frontendBuildPath = path.join(process.cwd(), "scanner-app/dist");
+  frontendBuildPath = path.join(process.cwd(), "dist");
 }
 
 app.use(express.static(frontendBuildPath));
 
 // Catch-all to serve index.html for React/Vite routing or general requests
 app.get("*", (req, res) => {
-  res.sendFile(path.join(frontendBuildPath, "index.html"));
+  const indexPath = path.join(frontendBuildPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send("Application Shell Not Found");
+  }
 });
 
 // Start the unified Express server if running standalone
