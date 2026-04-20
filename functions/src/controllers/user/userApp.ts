@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import Joi from "joi";
 import { db } from "../../config/firebase";
 import { requireAuth, AuthRequest } from "../../middleware/auth";
 import { generateVehicleQRToken } from "../../services/qrService";
