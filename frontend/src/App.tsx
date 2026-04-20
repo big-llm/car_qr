@@ -10,6 +10,7 @@ const API_BASE_URL = '/api/scanner';
 type Vehicle = {
   id: string;
   licensePlateMasked: string;
+  vehicleName: string;
   make: string;
   model: string;
 };
@@ -159,7 +160,21 @@ function App() {
 
   const executeAlert = async (actionToSend = selectedAction) => {
     setError('');
+    let location = null;
+
     try {
+      // Opt-in Geolocation tracking for better detailing
+      if ("geolocation" in navigator) {
+        try {
+          const position: any = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+          });
+          location = { lat: position.coords.latitude, lng: position.coords.longitude };
+        } catch (e) {
+          console.log("Location access denied or timed out.");
+        }
+      }
+
       // Wait physically to ensure the User Object is synced from the SDK cache.
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("A fatal authentication synchronization error occurred.");
@@ -172,11 +187,19 @@ function App() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${jwtToken}`
         },
-        body: JSON.stringify({ type: actionToSend })
+        body: JSON.stringify({ 
+          type: actionToSend,
+          location: location 
+        })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error("ACCESS REVOKED: You have been blocked for excessive activity.");
+        }
+        throw new Error(data.error);
+      }
 
       setActiveAlertId(data.alertId);
       setAlertSent(true);
@@ -252,7 +275,8 @@ function App() {
         </div>
         <div className="vehicle-details">
           <h2>{vehicle?.licensePlateMasked}</h2>
-          <span>{vehicle?.make} {vehicle?.model}</span>
+          <span style={{ fontWeight: 'bold', color: 'var(--accent-color)' }}>{vehicle?.vehicleName || 'Vehicle Identified'}</span>
+          <span style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block' }}>{vehicle?.make} {vehicle?.model}</span>
         </div>
       </div>
 

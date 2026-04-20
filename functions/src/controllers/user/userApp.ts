@@ -28,6 +28,28 @@ app.get("/profile", async (req: AuthRequest, res) => {
   }
 });
 
+app.put("/profile", async (req: AuthRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const schema = Joi.object({
+      name: Joi.string().allow("").optional(),
+      address: Joi.string().allow("").optional(),
+      whatsappNumber: Joi.string().allow("").optional(),
+      alternativeNumber: Joi.string().allow("").optional(),
+    });
+
+    const { error } = schema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const updates = { ...req.body, updatedAt: new Date().toISOString() };
+    await db.collection("users").doc(uid).update(updates);
+    
+    res.json({ success: true, updates });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // === MY VEHICLES ===
 app.get("/vehicles", async (req: AuthRequest, res) => {
   try {

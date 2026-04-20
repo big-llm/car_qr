@@ -6,20 +6,35 @@ import { requireAdmin } from "../../middleware/auth";
 import { generateVehicleQRToken } from "../../services/qrService";
 import Joi from "joi";
 
+import * as jwt from "jsonwebtoken";
+import { rateLimitMiddleware } from "../../middleware/rateLimit";
+
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "SUPER_SECRET_ADMIN_KEY_1337";
+
 const app = express();
 
 app.use(cors({ origin: true }));
 app.use(helmet());
 app.use(express.json());
+
 // Public Admin Login endpoint for fixed credentials
-app.post("/login", (req, res) => {
-  const { userid, password } = req.body;
-  if (userid === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
-      // Issue custom pseudo-token for local fixed session
-      res.json({ success: true, token: "CUSTOM_ADMIN_AUTH_TOKEN_" + Date.now() });
-  } else {
-      res.status(401).json({ error: "Invalid admin credentials" });
-  }
+// Rate limited to prevent brute-force
+app.post("/login", 
+  rateLimitMiddleware({ windowMs: 15 * 60 * 1000, max: 10, message: "Too many login attempts. Try again in 15 minutes." }),
+  (req, res) => {
+    const { userid, password } = req.body;
+    if (userid === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
+        // Sign a proper secure JWT
+        const token = jwt.sign({ 
+          sub: 'admin_root',
+          role: 'admin',
+          iat: Math.floor(Date.now() / 1000)
+        }, ADMIN_JWT_SECRET, { expiresIn: '24h' });
+
+        res.json({ success: true, token });
+    } else {
+        res.status(401).json({ error: "Invalid admin credentials" });
+    }
 });
 
 // Global middleware to enforce admin only for all SUBSEQUENT routes
@@ -30,8 +45,19 @@ app.use(requireAdmin);
 app.route("/users")
   .get(async (req, res) => {
     try {
-      const usersSnap = await db.collection("users").orderBy("createdAt", "desc").get();
-      const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const { q } = req.query;
+      let snap = await db.collection("users").orderBy("createdAt", "desc").get();
+      let users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+
+      if (q) {
+        const query = (q as string).toLowerCase();
+        users = users.filter(u => 
+          u.name?.toLowerCase().includes(query) || 
+          u.phoneNumber?.includes(query) || 
+          u.address?.toLowerCase().includes(query)
+        );
+      }
+
       res.json(users);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
@@ -41,7 +67,10 @@ app.route("/users")
     // Strict schema to create a user internally
     const schema = Joi.object({
       phoneNumber: Joi.string().pattern(/^\+[1-9]\d{1,14}$/).required(),
-      name: Joi.string().allow("").optional()
+      name: Joi.string().allow("").optional(),
+      address: Joi.string().allow("").optional(),
+      whatsappNumber: Joi.string().allow("").optional(),
+      alternativeNumber: Joi.string().allow("").optional()
     });
 
     const { error } = schema.validate(req.body);
@@ -49,13 +78,16 @@ app.route("/users")
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { phoneNumber, name } = req.body;
+    const { phoneNumber, name, address, whatsappNumber, alternativeNumber } = req.body;
     try {
       
       const userRecord = await auth.createUser({ phoneNumber, displayName: name });
       const userData = {
         phoneNumber,
         name: name || "",
+        address: address || "",
+        whatsappNumber: whatsappNumber || "",
+        alternativeNumber: alternativeNumber || "",
         status: "active",
         createdAt: new Date().toISOString(),
       };
@@ -102,13 +134,25 @@ app.get("/scanners", async (req, res) => {
 app.route("/vehicles")
   .get(async (req, res) => {
     try {
-      const { userId } = req.query;
-      let query: FirebaseFirestore.Query = db.collection("vehicles").orderBy("createdAt", "desc");
+      const { userId, q } = req.query;
+      let queryRef: FirebaseFirestore.Query = db.collection("vehicles").orderBy("createdAt", "desc");
+      
       if (userId) {
-        query = query.where("userId", "==", userId);
+        queryRef = queryRef.where("userId", "==", userId);
       }
-      const vehiclesSnap = await query.get();
-      const vehicles = vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      const vehiclesSnap = await queryRef.get();
+      let vehicles = vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+
+      if (q) {
+        const query = (q as string).toLowerCase();
+        vehicles = vehicles.filter(v => 
+          v.licensePlate?.toLowerCase().includes(query) || 
+          v.vehicleName?.toLowerCase().includes(query) || 
+          v.make?.toLowerCase().includes(query)
+        );
+      }
+
       res.json(vehicles);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch vehicles" });
@@ -118,6 +162,7 @@ app.route("/vehicles")
     const schema = Joi.object({
       userId: Joi.string().required(),
       licensePlate: Joi.string().max(20).required(),
+      vehicleName: Joi.string().allow("").optional(),
       make: Joi.string().allow("").optional(),
       model: Joi.string().allow("").optional()
     });
@@ -127,13 +172,14 @@ app.route("/vehicles")
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { userId, licensePlate, make, model } = req.body;
+    const { userId, licensePlate, vehicleName, make, model } = req.body;
 
     try {
       const qrToken = generateVehicleQRToken();
       const vehicleData = {
         userId,
         licensePlate,
+        vehicleName: vehicleName || "",
         make: make || "",
         model: model || "",
         qrToken,

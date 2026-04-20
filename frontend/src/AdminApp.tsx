@@ -25,16 +25,20 @@ export default function AdminApp() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>({ totalUsers: 0, totalVehicles: 0, totalAlerts: 0 });
 
+  // Search States
+  const [userQuery, setUserQuery] = useState('');
+  const [vehicleQuery, setVehicleQuery] = useState('');
+
   // Load Data
   useEffect(() => {
     if (token) {
       if (activeTab === 'dashboard') fetchMetrics();
-      if (activeTab === 'users' || activeTab === 'vehicles') fetchUsers(); // Need users for vehicle assignment
+      if (activeTab === 'users' || activeTab === 'vehicles') fetchUsers(userQuery); // Need users for vehicle assignment
       if (activeTab === 'scanners') fetchScanners();
-      if (activeTab === 'vehicles' || activeTab === 'qrcodes') fetchVehicles();
+      if (activeTab === 'vehicles' || activeTab === 'qrcodes') fetchVehicles(vehicleQuery);
       if (activeTab === 'alerts') fetchAlerts();
     }
-  }, [token, activeTab]);
+  }, [token, activeTab, userQuery, vehicleQuery]);
 
   const authFetch = async (url: string, options: any = {}) => {
     const res = await fetch(url, {
@@ -79,17 +83,17 @@ export default function AdminApp() {
   const fetchMetrics = async () => {
     try { setMetrics(await authFetch(`${API_BASE_URL}/dashboard-metrics`)); } catch(e) { console.error(e); }
   };
-  const fetchUsers = async () => {
+  const fetchUsers = async (q = '') => {
     setLoading(true);
-    try { setUsers(await authFetch(`${API_BASE_URL}/users`)); } catch(e) { console.error(e); } finally { setLoading(false); }
+    try { setUsers(await authFetch(`${API_BASE_URL}/users?q=${encodeURIComponent(q)}`)); } catch(e) { console.error(e); } finally { setLoading(false); }
   };
   const fetchScanners = async () => {
     setLoading(true);
     try { setScanners(await authFetch(`${API_BASE_URL}/scanners`)); } catch(e) { console.error(e); } finally { setLoading(false); }
   };
-  const fetchVehicles = async () => {
+  const fetchVehicles = async (q = '') => {
     setLoading(true);
-    try { setVehicles(await authFetch(`${API_BASE_URL}/vehicles`)); } catch(e) { console.error(e); } finally { setLoading(false); }
+    try { setVehicles(await authFetch(`${API_BASE_URL}/vehicles?q=${encodeURIComponent(q)}`)); } catch(e) { console.error(e); } finally { setLoading(false); }
   };
   const fetchAlerts = async () => {
     setLoading(true);
@@ -99,14 +103,24 @@ export default function AdminApp() {
   // === ACTIONS ===
   const [newPhone, setNewPhone] = useState('');
   const [newName, setNewName] = useState('');
+  const [newAddress, setNewAddress] = useState('');
+  const [newWhatsapp, setNewWhatsapp] = useState('');
+  const [newAltPhone, setNewAltPhone] = useState('');
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await authFetch(`${API_BASE_URL}/users`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: newPhone, name: newName })
+        body: JSON.stringify({ 
+          phoneNumber: newPhone, 
+          name: newName,
+          address: newAddress,
+          whatsappNumber: newWhatsapp,
+          alternativeNumber: newAltPhone
+        })
       });
-      setNewPhone(''); setNewName('');
+      setNewPhone(''); setNewName(''); setNewAddress(''); setNewWhatsapp(''); setNewAltPhone('');
       fetchUsers();
     } catch(err: any) { alert(err.message); }
   };
@@ -125,14 +139,22 @@ export default function AdminApp() {
   const [newVehUser, setNewVehUser] = useState('');
   const [newVehPlate, setNewVehPlate] = useState('');
   const [newVehMake, setNewVehMake] = useState('');
+  const [newVehName, setNewVehName] = useState('');
+
   const handleCreateVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await authFetch(`${API_BASE_URL}/vehicles`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: newVehUser, licensePlate: newVehPlate, make: newVehMake, model: "" })
+        body: JSON.stringify({ 
+          userId: newVehUser, 
+          licensePlate: newVehPlate, 
+          vehicleName: newVehName,
+          make: newVehMake, 
+          model: "" 
+        })
       });
-      setNewVehUser(''); setNewVehPlate(''); setNewVehMake('');
+      setNewVehUser(''); setNewVehPlate(''); setNewVehMake(''); setNewVehName('');
       fetchVehicles();
     } catch(err: any) { alert(err.message); }
   };
@@ -243,35 +265,55 @@ export default function AdminApp() {
         {/* USERS MANAGEMENT */}
         {activeTab === 'users' && (
           <div className="fade-in">
-            <h1 style={{ marginBottom: '2rem' }}>Registered Vehicle Owners</h1>
+            <h1 style={{ marginBottom: '1rem' }}>Registered Vehicle Owners</h1>
             
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+              <input 
+                type="text" 
+                placeholder="🔍 Search by name, phone or address..." 
+                value={userQuery} 
+                onChange={e => setUserQuery(e.target.value)} 
+                style={{ flex: 1, padding: '0.85rem', borderRadius: '12px', border: '1px solid var(--surface-border)', background: 'rgba(255,255,255,0.05)', color: 'white' }} 
+              />
+            </div>
+
             <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem', border: '1px solid var(--surface-border)' }}>
               <h3>Register New User</h3>
-              <form onSubmit={handleCreateUser} style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <input type="text" placeholder="Owner Name" value={newName} onChange={e => setNewName(e.target.value)} style={{ flex: 1, padding: '0.75rem', borderRadius: '8px' }} required/>
-                <input type="tel" placeholder="Phone Number (+1234567890)" value={newPhone} onChange={e => setNewPhone(e.target.value)} style={{ flex: 1, padding: '0.75rem', borderRadius: '8px' }} required/>
-                <button type="submit" className="btn-primary" style={{ width: 'auto' }}><Plus size={16}/> Add User</button>
+              <form onSubmit={handleCreateUser} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                <input type="text" placeholder="Owner Name" value={newName} onChange={e => setNewName(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} required/>
+                <input type="tel" placeholder="Primary Phone (+1234567890)" value={newPhone} onChange={e => setNewPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} required/>
+                <input type="text" placeholder="WhatsApp No." value={newWhatsapp} onChange={e => setNewWhatsapp(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }}/>
+                <input type="text" placeholder="Alt. Phone No." value={newAltPhone} onChange={e => setNewAltPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }}/>
+                <input type="text" placeholder="Physical Address" value={newAddress} onChange={e => setNewAddress(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', gridColumn: 'span 2' }}/>
+                <button type="submit" className="btn-primary" style={{ width: '100%', gridColumn: 'span 2' }}><Plus size={16}/> Add User</button>
               </form>
             </div>
 
             {loading ? <div className="spinner"></div> : (
               <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', background: 'var(--surface-color)', borderRadius: '12px', overflow: 'hidden' }}>
-                 <thead>
-                   <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
-                     <th style={{ padding: '1rem' }}>User Name</th>
-                     <th style={{ padding: '1rem' }}>Phone Number</th>
-                     <th style={{ padding: '1rem' }}>Joined</th>
-                     <th style={{ padding: '1rem' }}>Status</th>
-                     <th style={{ padding: '1rem', textAlign: 'right' }}>Actions</th>
-                   </tr>
-                 </thead>
-                 <tbody>
-                   {users.map(u => (
-                     <tr key={u.id} style={{ borderTop: '1px solid var(--surface-border)' }}>
-                       <td style={{ padding: '1rem' }}>{u.name || '-'}</td>
-                       <td style={{ padding: '1rem' }}>{u.phoneNumber}</td>
-                       <td style={{ padding: '1rem', color: 'var(--text-secondary)' }}>{new Date(u.createdAt).toLocaleDateString()}</td>
-                       <td style={{ padding: '1rem' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
+                      <th style={{ padding: '1rem' }}>User Info</th>
+                      <th style={{ padding: '1rem' }}>Contact Channels</th>
+                      <th style={{ padding: '1rem' }}>Address</th>
+                      <th style={{ padding: '1rem' }}>Status</th>
+                      <th style={{ padding: '1rem', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map(u => (
+                      <tr key={u.id} style={{ borderTop: '1px solid var(--surface-border)' }}>
+                        <td style={{ padding: '1rem' }}>
+                          <span style={{ fontWeight: 'bold', display: 'block' }}>{u.name || '-'}</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Joined: {new Date(u.createdAt).toLocaleDateString()}</span>
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          <div style={{ fontSize: '0.9rem' }}>P: {u.phoneNumber}</div>
+                          {u.whatsappNumber && <div style={{ fontSize: '0.8rem', color: '#10b981' }}>W: {u.whatsappNumber}</div>}
+                          {u.alternativeNumber && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>A: {u.alternativeNumber}</div>}
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{u.address || '-'}</td>
+                        <td style={{ padding: '1rem' }}>
                           <span style={{ padding: '0.2rem 0.5rem', background: u.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: u.status === 'active' ? '#10b981' : '#ef4444', borderRadius: '4px', fontSize: '0.8rem' }}>{u.status}</span>
                        </td>
                        <td style={{ padding: '1rem', textAlign: 'right' }}>
@@ -330,18 +372,29 @@ export default function AdminApp() {
         {/* VEHICLES MANAGEMENT */}
         {activeTab === 'vehicles' && (
           <div className="fade-in">
-            <h1 style={{ marginBottom: '2rem' }}>Vehicle Fleet</h1>
+            <h1 style={{ marginBottom: '1rem' }}>Vehicle Fleet</h1>
             
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+              <input 
+                type="text" 
+                placeholder="🔍 Search by plate, vehicle name or make..." 
+                value={vehicleQuery} 
+                onChange={e => setVehicleQuery(e.target.value)} 
+                style={{ flex: 1, padding: '0.85rem', borderRadius: '12px', border: '1px solid var(--surface-border)', background: 'rgba(255,255,255,0.05)', color: 'white' }} 
+              />
+            </div>
+
             <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem', border: '1px solid var(--surface-border)' }}>
               <h3>Register & Assign Vehicle</h3>
-              <form onSubmit={handleCreateVehicle} style={{ display: 'flex', gap: '1rem', marginTop: '1rem', alignItems: 'center' }}>
-                <select value={newVehUser} onChange={e => setNewVehUser(e.target.value)} style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', background: 'transparent', color: 'white', border: '1px solid var(--surface-border)' }} required>
+              <form onSubmit={handleCreateVehicle} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                <select value={newVehUser} onChange={e => setNewVehUser(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'transparent', color: 'white', border: '1px solid var(--surface-border)' }} required>
                   <option value="" disabled>Select Owner...</option>
                   {users.map(u => <option key={u.id} value={u.id}>{u.name || u.phoneNumber}</option>)}
                 </select>
-                <input type="text" placeholder="License Plate" value={newVehPlate} onChange={e => setNewVehPlate(e.target.value)} style={{ flex: 1, padding: '0.75rem', borderRadius: '8px' }} required/>
-                <input type="text" placeholder="Make/Model (Optional)" value={newVehMake} onChange={e => setNewVehMake(e.target.value)} style={{ flex: 1, padding: '0.75rem', borderRadius: '8px' }}/>
-                <button type="submit" className="btn-primary" style={{ width: 'auto' }}><Plus size={16}/> Register Vehicle</button>
+                <input type="text" placeholder="Vehicle Name (e.g. My SUV)" value={newVehName} onChange={e => setNewVehName(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }}/>
+                <input type="text" placeholder="License Plate" value={newVehPlate} onChange={e => setNewVehPlate(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} required/>
+                <input type="text" placeholder="Make/Model (Optional)" value={newVehMake} onChange={e => setNewVehMake(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }}/>
+                <button type="submit" className="btn-primary" style={{ gridColumn: 'span 2' }}><Plus size={16}/> Register Vehicle</button>
               </form>
             </div>
 
@@ -356,12 +409,16 @@ export default function AdminApp() {
                    </tr>
                  </thead>
                  <tbody>
-                   {vehicles.map(v => {
-                     const owner = users.find(u => u.id === v.userId);
-                     return (
-                     <tr key={v.id} style={{ borderTop: '1px solid var(--surface-border)' }}>
-                       <td style={{ padding: '1rem', fontWeight: 'bold' }}>{v.licensePlate} <span style={{fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 'normal', display: 'block'}}>{v.make}</span></td>
-                       <td style={{ padding: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{owner ? (owner.name || owner.phoneNumber) : v.userId}</td>
+                    {vehicles.map(v => {
+                      const owner = users.find(u => u.id === v.userId);
+                      return (
+                      <tr key={v.id} style={{ borderTop: '1px solid var(--surface-border)' }}>
+                        <td style={{ padding: '1rem', fontWeight: 'bold' }}>
+                          {v.licensePlate}
+                          <span style={{fontSize: '0.8rem', color: 'var(--accent-color)', fontWeight: 'normal', display: 'block'}}>{v.vehicleName || 'Generic Vehicle'}</span>
+                          <span style={{fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 'normal', display: 'block'}}>{v.make}</span>
+                        </td>
+                        <td style={{ padding: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{owner ? (owner.name || owner.phoneNumber) : v.userId}</td>
                        <td style={{ padding: '1rem' }}>
                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.1)', padding: '0.3rem', borderRadius: '4px', fontFamily: 'monospace' }}>{v.qrToken.split('-')[0]}***</span>
@@ -421,25 +478,29 @@ export default function AdminApp() {
              {loading ? <div className="spinner"></div> : (
                <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', background: 'var(--surface-color)', borderRadius: '12px', overflow: 'hidden' }}>
                   <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
-                      <th style={{ padding: '1rem' }}>Timestamp</th>
-                      <th style={{ padding: '1rem' }}>Alert Type</th>
-                      <th style={{ padding: '1rem' }}>Vehicle Ref</th>
-                      <th style={{ padding: '1rem' }}>Full Sender ID</th>
-                      <th style={{ padding: '1rem' }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {alerts.map(a => (
-                      <tr key={a.id} style={{ borderTop: '1px solid var(--surface-border)' }}>
-                        <td style={{ padding: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{new Date(a.timestamp).toLocaleString()}</td>
-                        <td style={{ padding: '1rem' }}>
-                           <span style={{ padding: '0.3rem 0.6rem', background: 'rgba(255,255,255,0.1)', borderRadius: '15px', fontSize: '0.8rem', textTransform: 'capitalize' }}>
-                              {a.type.replace('_', ' ')}
-                           </span>
-                        </td>
-                        <td style={{ padding: '1rem', fontFamily: 'monospace' }}>{a.vehicleId.slice(0,6)}...</td>
-                        <td style={{ padding: '1rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>{a.senderPhone}</td>
+                     <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
+                       <th style={{ padding: '1rem' }}>Timestamp</th>
+                       <th style={{ padding: '1rem' }}>Alert Type</th>
+                       <th style={{ padding: '1rem' }}>Scanner Context</th>
+                       <th style={{ padding: '1rem' }}>Full Sender ID</th>
+                       <th style={{ padding: '1rem' }}>Status</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {alerts.map(a => (
+                       <tr key={a.id} style={{ borderTop: '1px solid var(--surface-border)' }}>
+                         <td style={{ padding: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{new Date(a.timestamp).toLocaleString()}</td>
+                         <td style={{ padding: '1rem' }}>
+                            <span style={{ padding: '0.3rem 0.6rem', background: 'rgba(255,255,255,0.1)', borderRadius: '15px', fontSize: '0.8rem', textTransform: 'capitalize' }}>
+                               {a.type.replace('_', ' ')}
+                            </span>
+                         </td>
+                         <td style={{ padding: '1rem', fontSize: '0.8rem' }}>
+                            <div style={{ color: 'var(--text-secondary)' }}>IP: {a.metadata?.ip || 'N/A'}</div>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.metadata?.userAgent}>{a.metadata?.userAgent || 'N/A'}</div>
+                            {a.metadata?.location && <div style={{ color: '#10b981' }}>Loc: {a.metadata.location.lat}, {a.metadata.location.lng}</div>}
+                         </td>
+                         <td style={{ padding: '1rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>{a.senderPhone}</td>
                         <td style={{ padding: '1rem' }}>
                            <span style={{ padding: '0.2rem 0.5rem', background: a.status === 'delivered' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', color: a.status === 'delivered' ? '#10b981' : '#f59e0b', borderRadius: '4px', fontSize: '0.8rem' }}>
                              {a.status.toUpperCase()}

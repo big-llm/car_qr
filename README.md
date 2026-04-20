@@ -8,11 +8,11 @@ A complete, production-ready solution for anonymous vehicle owner contact via QR
 
 This project is built as a **Monolithic Native Node.js App** (Vite + Express), designed for easy deployment to Vercel, Render, or a private VPS.
 
-- **Frontend (`/scanner-app`)**: A 3-in-1 React Application:
+- **Frontend (`/frontend`)**: A 3-in-1 React Application:
   - **Public Scanner:** Mobile-first OTP-based alert trigger system with live response polling.
   - **Owner Portal:** Self-service fleet management and response center for car owners.
   - **Admin Panel:** Real-time monitoring of all alerts, scanners, and vehicle registrations.
-- **Backend (`/functions`)**: A high-performance Express.js engine:
+- **Backend (`/backend`)**: A high-performance Express.js engine:
   - **Native Firebase Admin SDK:** Securely manages Firestore and Auth.
   - **JWT Authorization:** Dual-layer security for Admins and Owners.
   - **Internal Alert Processor:** Handles the logic of notifying owners and tracking scan history.
@@ -53,12 +53,12 @@ This repo is specifically hardened for Vercel. **Crucially**, it uses a "Cloud S
 
 ```text
 /
-├── scanner-app/          # Vite + React Frontend (Scanner, Admin, Owner)
+├── frontend/             # Vite + React Frontend (Scanner, Admin, Owner)
 │   ├── src/
 │   │   ├── App.tsx       # Scanner Interface
 │   │   ├── AdminApp.tsx  # Super Admin Dashboard
 │   │   └── OwnerApp.tsx  # Vehicle Owner Portal
-├── functions/            # Express Backend (The "Live" API)
+├── backend/              # Express Backend (The "Live" API)
 │   ├── src/
 │   │   ├── server.ts     # Main Server Entry
 │   │   ├── controllers/  # API Business Logic
@@ -73,15 +73,11 @@ This repo is specifically hardened for Vercel. **Crucially**, it uses a "Cloud S
 
 ### 1. Build the Frontend
 ```bash
-cd scanner-app
-npm install
-npm run build
+npm run build:frontend
 ```
 
 ### 2. Launch the Backend
 ```bash
-cd functions
-npm install
 npm run dev
 ```
 

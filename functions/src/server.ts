@@ -21,15 +21,16 @@ app.use('/api/scanner', publicApp);
 app.use('/api/user', userApp);
 
 // Serve Frontend Vite App
-let frontendBuildPath = path.join(__dirname, "../dist");
+const possiblePaths = [
+  path.join(__dirname, "../dist"),           // local dev with ts-node in backend/src
+  path.join(process.cwd(), "dist"),          // local dev running from backend/
+  path.join(process.cwd(), "backend/dist"),   // local dev running from root
+  path.join(__dirname, "dist"),              // production build (post-compile)
+];
 
-// Fallback checks for local and Vercel environments
-if (!fs.existsSync(path.join(frontendBuildPath, "index.html"))) {
-  frontendBuildPath = path.join(process.cwd(), "functions/dist");
-}
-if (!fs.existsSync(path.join(frontendBuildPath, "index.html"))) {
-  frontendBuildPath = path.join(process.cwd(), "dist");
-}
+let frontendBuildPath = possiblePaths.find(p => fs.existsSync(path.join(p, "index.html"))) || possiblePaths[0];
+
+console.log(`📂 Serving frontend from: ${frontendBuildPath}`);
 
 app.use(express.static(frontendBuildPath));
 

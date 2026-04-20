@@ -60,16 +60,18 @@ app.post(
     // Strict Request Validation
     const schema = Joi.object({
       type: Joi.string().valid("blocking_vehicle", "blocking_road", "lights_on", "emergency").required(),
+      location: Joi.object({
+        lat: Joi.number().required(),
+        lng: Joi.number().required()
+      }).optional()
     });
 
-    const { error } = schema.validate({ type });
+    const { error } = schema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    if (!senderPhone) {
-       return res.status(401).json({ error: "Verified phone number is missing from your account." });
-    }
+    const { location } = req.body;
 
     try {
       // 1. Check if the sender is globally blocked
@@ -77,6 +79,34 @@ app.post(
       const blockSnap = await db.collection("blocked_numbers").doc(senderHash).get();
       if (blockSnap.exists) {
         return res.status(403).json({ error: "Your number is blocked from sending requests." });
+      }
+
+      // 1b. Reputation System Check (Prevent Harassment)
+      const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
+      const recentAlertsSnap = await db.collection("alerts")
+        .where("senderPhone", "==", senderPhone)
+        .where("timestamp", ">=", oneHourAgo)
+        .count()
+        .get();
+      
+      const recentCount = recentAlertsSnap.data().count;
+      const MAX_ALERTS_PER_HOUR = 5;
+
+      if (recentCount >= MAX_ALERTS_PER_HOUR) {
+        // Auto-block for harassment
+        await db.collection("blocked_numbers").doc(senderHash).set({
+          phoneNumber: senderPhone,
+          reason: `Automated block: Exceeded threshold of ${MAX_ALERTS_PER_HOUR} alerts/hour.`,
+          blockedAt: new Date().toISOString()
+        });
+        
+        // Mark scanner as banned in registry
+        await db.collection("scanners").doc(senderPhone).update({
+          status: 'blocked',
+          banReason: 'Harassment/Excessive Pinging'
+        }).catch(() => {});
+
+        return res.status(403).json({ error: "Access Denied: Your account has been automatically flagged and blocked for excessive activity." });
       }
 
       // 2. Validate Vehicle
@@ -97,7 +127,12 @@ app.post(
         rawSenderHash: senderHash,
         timestamp: new Date().toISOString(),
         status: "pending",
-        deliveryLog: []
+        deliveryLog: [],
+        metadata: {
+          ip: req.ip,
+          userAgent: req.get("user-agent"),
+          location: location || null
+        }
       };
 
       const alertRef = await db.collection("alerts").add(alertData);
@@ -106,10 +141,22 @@ app.post(
       await db.runTransaction(async (t) => {
          const doc = await t.get(scannerRef);
          if (!doc.exists) {
-            t.set(scannerRef, { phoneNumber: senderPhone, totalScans: 1, lastScan: new Date().toISOString(), status: 'active' });
+            t.set(scannerRef, { 
+              phoneNumber: senderPhone, 
+              totalScans: 1, 
+              lastScan: new Date().toISOString(), 
+              status: 'active',
+              lastIp: req.ip,
+              lastUserAgent: req.get("user-agent")
+            });
          } else {
             const data = doc.data()!;
-            t.update(scannerRef, { totalScans: (data.totalScans || 1) + 1, lastScan: new Date().toISOString() });
+            t.update(scannerRef, { 
+              totalScans: (data.totalScans || 1) + 1, 
+              lastScan: new Date().toISOString(),
+              lastIp: req.ip,
+              lastUserAgent: req.get("user-agent")
+            });
          }
       });
 

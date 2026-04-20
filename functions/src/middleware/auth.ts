@@ -25,6 +25,10 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
   }
 };
 
+import * as jwt from "jsonwebtoken";
+
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "SUPER_SECRET_ADMIN_KEY_1337";
+
 // Middleware to strongly verify admin auth (for Admin Panel)
 export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   // Allow OPTIONS preflight for CORS freely
@@ -41,24 +45,30 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
 
   const token = authHeader.split(" ")[1];
 
-  // Custom Fixed-Credential Admin Bypass
-  if (token.startsWith("CUSTOM_ADMIN_AUTH_TOKEN_")) {
-     req.user = { admin: true } as any; 
-     next();
-     return;
-  }
-
   try {
-    const decodedToken = await auth.verifyIdToken(token);
-    // Assuming custom claims { admin: true } are set for admins
-    if (decodedToken.admin !== true) {
-      res.status(403).json({ error: "Forbidden: Admin privileges required" });
+    // 1. Try Firebase Auth first (for real admin accounts)
+    try {
+      const decodedToken = await auth.verifyIdToken(token);
+      if (decodedToken.admin === true) {
+        req.user = decodedToken;
+        next();
+        return;
+      }
+    } catch (firebaseErr) {
+      // Not a firebase admin token, try JWT
+    }
+
+    // 2. Try JWT for fixed-credential admin session (the modern secure way)
+    const decoded: any = jwt.verify(token, ADMIN_JWT_SECRET);
+    if (decoded.role === 'admin') {
+      req.user = { uid: "admin_fixed", admin: true } as any;
+      next();
       return;
     }
-    req.user = decodedToken;
-    next();
+
+    res.status(403).json({ error: "Forbidden: Admin privileges required" });
   } catch (error) {
     console.error("Admin verification error:", error);
-    res.status(401).json({ error: "Unauthorized: Invalid authentication token" });
+    res.status(401).json({ error: "Unauthorized: Invalid or expired session" });
   }
 };

@@ -31,6 +31,13 @@ export default function OwnerApp() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
+  // Profile Edit State
+  const [isUserEditingProfile, setIsUserEditingProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editAltPhone, setEditAltPhone] = useState('');
+
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
       setUser(currentUser);
@@ -284,7 +291,7 @@ export default function OwnerApp() {
                     const isNew = a.status !== 'responded';
                     const veh = vehicles.find(v => v.id === a.vehicleId);
                     return (
-                     <div key={a.id} style={{ background: isNew ? 'rgba(56, 189, 248, 0.05)' : 'var(--surface-color)', border: isNew ? '1px solid var(--accent-color)' : '1px solid var(--surface-border)', padding: '1.25rem', borderRadius: '16px' }}>
+                      <div key={a.id} style={{ background: isNew ? 'rgba(56, 189, 248, 0.05)' : 'var(--surface-color)', border: isNew ? '1px solid var(--accent-color)' : '1px solid var(--surface-border)', padding: '1.25rem', borderRadius: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                            <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.1)', padding: '0.2rem 0.5rem', borderRadius: '10px' }}>{new Date(a.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                            <span style={{ fontSize: '0.75rem', color: isNew ? 'var(--accent-color)' : 'var(--text-secondary)', fontWeight: 'bold' }}>{a.status.toUpperCase()}</span>
@@ -296,10 +303,10 @@ export default function OwnerApp() {
                         {isNew && (
                           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                              <button onClick={() => handleAlertResponse(a.id, 'on_my_way')} className="btn-primary" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
-                               On My Way
+                                On My Way
                              </button>
                              <button onClick={() => handleAlertResponse(a.id, 'acknowledged')} className="btn-outline" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
-                               Acknowledge
+                                Acknowledge
                              </button>
                           </div>
                         )}
@@ -320,21 +327,68 @@ export default function OwnerApp() {
            <div className="fade-in">
              <h1 style={{fontSize: '1.5rem', marginBottom: '1.5rem'}}>Account Settings</h1>
              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
-                <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem'}}>Authenticated as: <strong style={{color:'white'}}>{user.phoneNumber}</strong></p>
+                 {!isUserEditingProfile ? (
+                   <>
+                    <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem'}}>Authenticated as: <strong style={{color:'white'}}>{user?.phoneNumber}</strong></p>
+                    <div style={{ marginBottom: '1.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      <p style={{ margin: '0.2rem 0' }}>Name: <strong style={{color:'white'}}>{profile?.name || 'Not Set'}</strong></p>
+                      <p style={{ margin: '0.2rem 0' }}>Address: <strong style={{color:'white'}}>{profile?.address || 'Not Set'}</strong></p>
+                      <p style={{ margin: '0.2rem 0' }}>WhatsApp: <strong style={{color:'white'}}>{profile?.whatsappNumber || 'Not Set'}</strong></p>
+                    </div>
+                    
+                    <button onClick={() => {
+                        setIsUserEditingProfile(true);
+                        setEditName(profile?.name || '');
+                        setEditAddress(profile?.address || '');
+                        setEditWhatsapp(profile?.whatsappNumber || '');
+                        setEditAltPhone(profile?.alternativeNumber || '');
+                      }} className="btn-outline" style={{ width: '100%', marginBottom: '1.5rem', padding: '0.8rem' }}>
+                      <Settings size={16} /> Edit Profile Details
+                    </button>
+                   </>
+                 ) : (
+                   <div className="fade-in">
+                     <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Edit Contact Profile</h3>
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <input type="text" placeholder="Full Name" value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
+                        <input type="text" placeholder="WhatsApp Number" value={editWhatsapp} onChange={e => setEditWhatsapp(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
+                        <input type="text" placeholder="Alternative Phone" value={editAltPhone} onChange={e => setEditAltPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
+                        <textarea placeholder="Physical Address" value={editAddress} onChange={e => setEditAddress(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', minHeight: '80px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
+                     </div>
+                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
+                        <button onClick={async () => {
+                          try {
+                            await authFetch('/profile', {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ name: editName, address: editAddress, whatsappNumber: editWhatsapp, alternativeNumber: editAltPhone })
+                            });
+                            setIsUserEditingProfile(false);
+                            loadDashboard();
+                          } catch(e) { alert("Failed to save"); }
+                        }} className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Save</button>
+                        <button onClick={() => setIsUserEditingProfile(false)} className="btn-outline" style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
+                     </div>
+                   </div>
+                 )}
                 
-                <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Notification Preferences</h3>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
-                  <input type="checkbox" defaultChecked style={{width: '20px', height: '20px'}}/> Direct SMS Alerts
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-                  <input type="checkbox" style={{width: '20px', height: '20px'}}/> WhatsApp Integration (Beta)
-                </label>
+                {!isUserEditingProfile && (
+                  <>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '1rem', marginTop: '1.5rem' }}>Notification Preferences</h3>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                      <input type="checkbox" defaultChecked style={{width: '20px', height: '20px'}}/> Direct SMS Alerts
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                      <input type="checkbox" style={{width: '20px', height: '20px'}}/> WhatsApp Integration (Beta)
+                    </label>
 
-                <hr style={{ border: 'none', borderTop: '1px solid var(--surface-border)', margin: '1.5rem 0' }} />
-                
-                <button onClick={handleLogout} className="btn-danger" style={{ width: '100%', padding: '1rem' }}>
-                  <LogOut size={18} /> Logout Device
-                </button>
+                    <hr style={{ border: 'none', borderTop: '1px solid var(--surface-border)', margin: '1.5rem 0' }} />
+                    
+                    <button onClick={handleLogout} className="btn-danger" style={{ width: '100%', padding: '1rem' }}>
+                      <LogOut size={18} /> Logout Device
+                    </button>
+                  </>
+                )}
              </div>
            </div>
          )}
