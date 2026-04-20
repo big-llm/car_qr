@@ -6,6 +6,8 @@ import {
 import { auth } from './lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, User } from 'firebase/auth';
 import QRCode from 'react-qr-code';
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import './App.css';
 
 const API_BASE_URL = '/api/user';
@@ -32,7 +34,7 @@ export default function OwnerApp() {
   const [loadingData, setLoadingData] = useState(false);
 
   // Profile Edit State
-  const [isUserEditingProfile, setIsUserEditingProfile] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editWhatsapp, setEditWhatsapp] = useState('');
@@ -148,6 +150,93 @@ export default function OwnerApp() {
        await authFetch(`/vehicles/${vehicleId}/qr-regenerate`, { method: "PUT" });
        fetchVehicles();
      } catch(e) { alert("Failed to regenerate"); }
+  };
+
+  const handleDownloadSticker = async (vehicle: any) => {
+    const scanUrl = `${window.location.protocol}//${window.location.host}/qr/${vehicle.qrToken}`;
+    
+    // Create a temporary hidden sticker element for capturing
+    const sticker = document.createElement('div');
+    sticker.id = 'temp-sticker';
+    sticker.style.position = 'fixed';
+    sticker.style.top = '0';
+    sticker.style.left = '-2000px';
+    sticker.style.width = '400px';
+    sticker.style.padding = '30px';
+    sticker.style.background = 'white';
+    sticker.style.borderRadius = '20px';
+    sticker.style.textAlign = 'center';
+    sticker.style.color = '#0f172a';
+    sticker.style.fontFamily = 'sans-serif';
+    sticker.innerHTML = `
+      <div style="border: 4px solid #0ea5e9; padding: 25px; border-radius: 20px; background: white;">
+        <h1 style="margin: 0; color: #0ea5e9; font-size: 32px; letter-spacing: 2px;">SAVIOUR</h1>
+        <p style="margin: 5px 0 25px; font-weight: bold; font-size: 14px; color: #64748b;">SMART VEHICLE CONTACT</p>
+        
+        <div style="background: white; padding: 20px; display: inline-block; border-radius: 15px; border: 2px solid #e2e8f0; margin-bottom: 20px;">
+          <img id="qr-image-${vehicle.id}" width="220" height="220" />
+        </div>
+        
+        <p style="margin: 0; font-weight: 900; font-size: 24px; color: #0f172a; letter-spacing: 1px;">SCAN ME</p>
+        <p style="margin: 5px 0 25px; font-size: 13px; color: #64748b;">In case of emergency or wrong parking</p>
+        
+        <div style="background: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #e2e8f0;">
+           <span style="font-size: 20px; font-weight: bold; color: #0ea5e9; letter-spacing: 1px;">${vehicle.licensePlate}</span>
+        </div>
+        
+        <p style="margin-top: 25px; font-size: 10px; color: #94a3b8; font-style: italic;">Powered by Saviour Smart Systems</p>
+      </div>
+    `;
+    document.body.appendChild(sticker);
+
+    // Wait for QR image to load
+    const qrImg = document.getElementById(`qr-image-${vehicle.id}`) as HTMLImageElement;
+    qrImg.src = await generateQRDataURL(scanUrl);
+
+    try {
+      // Use higher scale for print quality
+      const canvas = await html2canvas(sticker, { 
+        scale: 3,
+        useCORS: true,
+        backgroundColor: null
+      });
+      const imgData = canvas.toDataURL('image/png');
+      
+      // A6-ish size for the PDF
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [105, 148] 
+      });
+      
+      pdf.setProperties({ title: `Saviour_Sticker_${vehicle.licensePlate}` });
+      pdf.addImage(imgData, 'PNG', 5, 5, 95, 138);
+      pdf.save(`Sticker-${vehicle.licensePlate}.pdf`);
+    } catch(e) {
+      console.error(e);
+      alert("Failed to generate sticker. Please try again.");
+    } finally {
+      document.body.removeChild(sticker);
+    }
+  };
+
+  const generateQRDataURL = (url: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const svg = document.querySelector(`.qr-hidden svg`) as SVGElement;
+      if (!svg) return resolve("");
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.width * 2;
+        canvas.height = img.height * 2;
+        ctx?.scale(2, 2);
+        ctx?.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+    });
   };
 
 
@@ -267,8 +356,15 @@ export default function OwnerApp() {
                              <QRCode value={scanUrl} size={60} level={"L"} />
                            </div>
                            <div style={{ flex: 1 }}>
-                              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, marginBottom: '0.25rem' }}>SECURE ID TOKEN:</p>
-                              <code style={{ fontSize: '0.7rem', wordBreak: 'break-all', display: 'block', color: 'var(--accent-color)' }}>{v.qrToken}</code>
+                               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, marginBottom: '0.25rem' }}>SECURE ID TOKEN:</p>
+                               <code style={{ fontSize: '0.7rem', wordBreak: 'break-all', display: 'block', color: 'var(--accent-color)', marginBottom: '1rem' }}>{v.qrToken}</code>
+                               <button onClick={() => handleDownloadSticker(v)} className="btn-primary" style={{ width: '100%', padding: '0.6rem', fontSize: '0.8rem', background: 'var(--accent-color)' }}>
+                                  <Send size={14}/> Download Sticker
+                               </button>
+                           </div>
+                           {/* Hidden QR for PDF Generation */}
+                           <div className="qr-hidden" style={{ display: 'none' }}>
+                               <QRCode value={scanUrl} size={256} />
                            </div>
                         </div>
                      </div>
@@ -327,7 +423,7 @@ export default function OwnerApp() {
            <div className="fade-in">
              <h1 style={{fontSize: '1.5rem', marginBottom: '1.5rem'}}>Account Settings</h1>
              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
-                 {!isUserEditingProfile ? (
+                 {!editingProfile ? (
                    <>
                     <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem'}}>Authenticated as: <strong style={{color:'white'}}>{user?.phoneNumber}</strong></p>
                     <div style={{ marginBottom: '1.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -337,7 +433,7 @@ export default function OwnerApp() {
                     </div>
                     
                     <button onClick={() => {
-                        setIsUserEditingProfile(true);
+                        setEditingProfile(true);
                         setEditName(profile?.name || '');
                         setEditAddress(profile?.address || '');
                         setEditWhatsapp(profile?.whatsappNumber || '');
@@ -363,16 +459,16 @@ export default function OwnerApp() {
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ name: editName, address: editAddress, whatsappNumber: editWhatsapp, alternativeNumber: editAltPhone })
                             });
-                            setIsUserEditingProfile(false);
+                            setEditingProfile(false);
                             loadDashboard();
                           } catch(e) { alert("Failed to save"); }
                         }} className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Save</button>
-                        <button onClick={() => setIsUserEditingProfile(false)} className="btn-outline" style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
+                        <button onClick={() => setEditingProfile(false)} className="btn-outline" style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
                      </div>
                    </div>
                  )}
                 
-                {!isUserEditingProfile && (
+                {!editingProfile && (
                   <>
                     <h3 style={{ fontSize: '1rem', marginBottom: '1rem', marginTop: '1.5rem' }}>Notification Preferences</h3>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.9rem' }}>

@@ -37,6 +37,11 @@ app.put("/profile", async (req: AuthRequest, res) => {
       address: Joi.string().allow("").optional(),
       whatsappNumber: Joi.string().allow("").optional(),
       alternativeNumber: Joi.string().allow("").optional(),
+      notificationPreferences: Joi.object({
+        sms: Joi.boolean().default(true),
+        whatsapp: Joi.boolean().default(false),
+        push: Joi.boolean().default(false)
+      }).optional()
     });
 
     const { error } = schema.validate(req.body);

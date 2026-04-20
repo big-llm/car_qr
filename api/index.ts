@@ -1,2 +1,2 @@
-import app from '../backend/src/server';
+import app from '../functions/src/server';
 export default app;
