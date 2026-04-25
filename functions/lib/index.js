@@ -33,21 +33,38 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onUserDelete = exports.onUserSignup = exports.processNewAlert = exports.api = exports.scanner = exports.admin = void 0;
+exports.onUserDelete = exports.onUserSignup = exports.expireAlerts = exports.retryNotifications = exports.api = exports.scanner = exports.admin = void 0;
 const functions = __importStar(require("firebase-functions"));
 const adminApp_1 = require("./controllers/admin/adminApp");
 const publicApp_1 = require("./controllers/public/publicApp");
 const userApp_1 = require("./controllers/user/userApp");
-const onAlertCreated_1 = require("./triggers/onAlertCreated");
-Object.defineProperty(exports, "processNewAlert", { enumerable: true, get: function () { return onAlertCreated_1.processNewAlert; } });
-const onAuth_1 = require("./triggers/onAuth");
-Object.defineProperty(exports, "onUserSignup", { enumerable: true, get: function () { return onAuth_1.onUserSignup; } });
-Object.defineProperty(exports, "onUserDelete", { enumerable: true, get: function () { return onAuth_1.onUserDelete; } });
-// --- API Endpoints (Express Apps) ---
-// Admin Panel API endpoints
+const firebase_1 = require("./config/firebase");
+const alertProcessor_1 = require("./services/alertProcessor");
 exports.admin = functions.https.onRequest(adminApp_1.adminApp);
-// Public Scanner/QR endpoints
 exports.scanner = functions.https.onRequest(publicApp_1.publicApp);
-// Regular User API endpoints
 exports.api = functions.https.onRequest(userApp_1.userApp);
+exports.retryNotifications = functions.pubsub.schedule("every 2 minutes").onRun(async () => {
+    const processed = await (0, alertProcessor_1.retryPendingNotificationJobs)();
+    console.log(`Processed ${processed} notification retry jobs`);
+});
+exports.expireAlerts = functions.pubsub.schedule("every 5 minutes").onRun(async () => {
+    const expired = await (0, alertProcessor_1.expireOldAlerts)();
+    console.log(`Expired ${expired} old alerts`);
+});
+exports.onUserSignup = functions.auth.user().onCreate(async (user) => {
+    const phoneNumber = user.phoneNumber || "Unknown";
+    await firebase_1.db.collection("users").doc(user.uid).set({
+        phoneNumber,
+        name: user.displayName || "",
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    }, { merge: true });
+});
+exports.onUserDelete = functions.auth.user().onDelete(async (user) => {
+    await firebase_1.db.collection("users").doc(user.uid).set({
+        status: "deactivated",
+        updatedAt: new Date().toISOString()
+    }, { merge: true });
+});
 //# sourceMappingURL=index.js.map

@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -11,16 +44,25 @@ const firebase_1 = require("../../config/firebase");
 const auth_1 = require("../../middleware/auth");
 const qrService_1 = require("../../services/qrService");
 const joi_1 = __importDefault(require("joi"));
+const jwt = __importStar(require("jsonwebtoken"));
+const rateLimit_1 = require("../../middleware/rateLimit");
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "SUPER_SECRET_ADMIN_KEY_1337";
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)({ origin: true }));
 app.use((0, helmet_1.default)());
 app.use(express_1.default.json());
 // Public Admin Login endpoint for fixed credentials
-app.post("/login", (req, res) => {
+// Rate limited to prevent brute-force
+app.post("/login", (0, rateLimit_1.rateLimitMiddleware)({ windowMs: 15 * 60 * 1000, max: 10, message: "Too many login attempts. Try again in 15 minutes." }), (req, res) => {
     const { userid, password } = req.body;
     if (userid === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
-        // Issue custom pseudo-token for local fixed session
-        res.json({ success: true, token: "CUSTOM_ADMIN_AUTH_TOKEN_" + Date.now() });
+        // Sign a proper secure JWT
+        const token = jwt.sign({
+            sub: 'admin_root',
+            role: 'admin',
+            iat: Math.floor(Date.now() / 1000)
+        }, ADMIN_JWT_SECRET, { expiresIn: '24h' });
+        res.json({ success: true, token });
     }
     else {
         res.status(401).json({ error: "Invalid admin credentials" });
@@ -33,8 +75,15 @@ app.use(auth_1.requireAdmin);
 app.route("/users")
     .get(async (req, res) => {
     try {
-        const usersSnap = await firebase_1.db.collection("users").orderBy("createdAt", "desc").get();
-        const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const { q } = req.query;
+        let snap = await firebase_1.db.collection("users").orderBy("createdAt", "desc").get();
+        let users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (q) {
+            const query = q.toLowerCase();
+            users = users.filter(u => u.name?.toLowerCase().includes(query) ||
+                u.phoneNumber?.includes(query) ||
+                u.address?.toLowerCase().includes(query));
+        }
         res.json(users);
     }
     catch (error) {
@@ -45,23 +94,53 @@ app.route("/users")
     // Strict schema to create a user internally
     const schema = joi_1.default.object({
         phoneNumber: joi_1.default.string().pattern(/^\+[1-9]\d{1,14}$/).required(),
-        name: joi_1.default.string().allow("").optional()
+        name: joi_1.default.string().allow("").optional(),
+        address: joi_1.default.string().allow("").optional(),
+        whatsappNumber: joi_1.default.string().allow("").optional(),
+        alternativeNumber: joi_1.default.string().allow("").optional(),
+        role: joi_1.default.string().valid("owner", "admin").default("owner")
     });
     const { error } = schema.validate(req.body);
     if (error) {
         return res.status(400).json({ error: error.details[0].message });
     }
-    const { phoneNumber, name } = req.body;
+    const { phoneNumber, name, address, whatsappNumber, alternativeNumber, role } = req.body;
     try {
         const userRecord = await firebase_1.auth.createUser({ phoneNumber, displayName: name });
         const userData = {
             phoneNumber,
             name: name || "",
+            address: address || "",
+            whatsappNumber: whatsappNumber || "",
+            alternativeNumber: alternativeNumber || "",
+            role,
             status: "active",
             createdAt: new Date().toISOString(),
         };
         await firebase_1.db.collection("users").doc(userRecord.uid).set(userData);
         res.status(201).json({ id: userRecord.uid, ...userData });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.put("/users/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const schema = joi_1.default.object({
+        name: joi_1.default.string().allow("").optional(),
+        address: joi_1.default.string().allow("").optional(),
+        whatsappNumber: joi_1.default.string().allow("").optional(),
+        alternativeNumber: joi_1.default.string().allow("").optional(),
+        role: joi_1.default.string().valid("owner", "admin").optional()
+    }).min(1);
+    const { error, value } = schema.validate(req.body);
+    if (error) {
+        return res.status(400).json({ error: error.details[0].message });
+    }
+    try {
+        const updates = { ...value, updatedAt: new Date().toISOString() };
+        await firebase_1.db.collection("users").doc(userId).update(updates);
+        res.json({ success: true, updates });
     }
     catch (error) {
         res.status(500).json({ error: error.message });
@@ -84,17 +163,35 @@ app.put("/users/:userId/status", async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// === SCANNERS ===
+// Get public scanners log
+app.get("/scanners", async (req, res) => {
+    try {
+        const scannerSnap = await firebase_1.db.collection("scanners").orderBy("lastScan", "desc").get();
+        const scanners = scannerSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(scanners);
+    }
+    catch (error) {
+        res.status(500).json({ error: "Failed to fetch scanners" });
+    }
+});
 // === VEHICLES ===
 app.route("/vehicles")
     .get(async (req, res) => {
     try {
-        const { userId } = req.query;
-        let query = firebase_1.db.collection("vehicles").orderBy("createdAt", "desc");
+        const { userId, q } = req.query;
+        let queryRef = firebase_1.db.collection("vehicles").orderBy("createdAt", "desc");
         if (userId) {
-            query = query.where("userId", "==", userId);
+            queryRef = queryRef.where("userId", "==", userId);
         }
-        const vehiclesSnap = await query.get();
-        const vehicles = vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const vehiclesSnap = await queryRef.get();
+        let vehicles = vehiclesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (q) {
+            const query = q.toLowerCase();
+            vehicles = vehicles.filter(v => v.licensePlate?.toLowerCase().includes(query) ||
+                v.vehicleName?.toLowerCase().includes(query) ||
+                v.make?.toLowerCase().includes(query));
+        }
         res.json(vehicles);
     }
     catch (error) {
@@ -105,6 +202,7 @@ app.route("/vehicles")
     const schema = joi_1.default.object({
         userId: joi_1.default.string().required(),
         licensePlate: joi_1.default.string().max(20).required(),
+        vehicleName: joi_1.default.string().allow("").optional(),
         make: joi_1.default.string().allow("").optional(),
         model: joi_1.default.string().allow("").optional()
     });
@@ -112,12 +210,13 @@ app.route("/vehicles")
     if (error) {
         return res.status(400).json({ error: error.details[0].message });
     }
-    const { userId, licensePlate, make, model } = req.body;
+    const { userId, licensePlate, vehicleName, make, model } = req.body;
     try {
         const qrToken = (0, qrService_1.generateVehicleQRToken)();
         const vehicleData = {
             userId,
             licensePlate,
+            vehicleName: vehicleName || "",
             make: make || "",
             model: model || "",
             qrToken,
@@ -177,13 +276,43 @@ app.get("/dashboard-metrics", async (req, res) => {
     try {
         // Note: For real scale this should be handled by counter functions or aggregations,
         // count() is supported in Firestore recent versions and is efficient.
-        const usersCount = (await firebase_1.db.collection("users").count().get()).data().count;
-        const vehiclesCount = (await firebase_1.db.collection("vehicles").count().get()).data().count;
-        const alertsCount = (await firebase_1.db.collection("alerts").count().get()).data().count;
+        const [usersCountSnap, vehiclesCountSnap, alertsCountSnap, activeAlertsSnap, failedAlertsSnap, pendingRetrySnap, recentAlertsSnap] = await Promise.all([
+            firebase_1.db.collection("users").count().get(),
+            firebase_1.db.collection("vehicles").count().get(),
+            firebase_1.db.collection("alerts").count().get(),
+            firebase_1.db.collection("alerts").where("status", "in", ["pending", "delivered", "pending_retry"]).count().get(),
+            firebase_1.db.collection("alerts").where("status", "==", "failed").count().get(),
+            firebase_1.db.collection("alerts").where("notificationStatus", "==", "pending").count().get(),
+            firebase_1.db.collection("alerts").orderBy("timestamp", "desc").limit(500).get()
+        ]);
+        const vehicleCounts = new Map();
+        const peakHourCounts = new Map();
+        recentAlertsSnap.docs.forEach((doc) => {
+            const alert = doc.data();
+            if (alert.vehicleId)
+                vehicleCounts.set(alert.vehicleId, (vehicleCounts.get(alert.vehicleId) || 0) + 1);
+            if (alert.timestamp) {
+                const hour = new Date(alert.timestamp).getHours();
+                peakHourCounts.set(hour, (peakHourCounts.get(hour) || 0) + 1);
+            }
+        });
+        const mostReportedVehicles = Array.from(vehicleCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([vehicleId, count]) => ({ vehicleId, count }));
+        const peakUsageHours = Array.from(peakHourCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([hour, count]) => ({ hour, count }));
         res.json({
-            totalUsers: usersCount,
-            totalVehicles: vehiclesCount,
-            totalAlerts: alertsCount,
+            totalUsers: usersCountSnap.data().count,
+            totalVehicles: vehiclesCountSnap.data().count,
+            totalAlerts: alertsCountSnap.data().count,
+            activeAlerts: activeAlertsSnap.data().count,
+            failedAlerts: failedAlertsSnap.data().count,
+            pendingNotificationRetries: pendingRetrySnap.data().count,
+            mostReportedVehicles,
+            peakUsageHours,
         });
     }
     catch (error) {

@@ -23,7 +23,16 @@ export default function AdminApp() {
   const [scanners, setScanners] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
-  const [metrics, setMetrics] = useState<any>({ totalUsers: 0, totalVehicles: 0, totalAlerts: 0 });
+  const [metrics, setMetrics] = useState<any>({
+    totalUsers: 0,
+    totalVehicles: 0,
+    totalAlerts: 0,
+    activeAlerts: 0,
+    failedAlerts: 0,
+    pendingNotificationRetries: 0,
+    mostReportedVehicles: [],
+    peakUsageHours: []
+  });
 
   // Search States
   const [userQuery, setUserQuery] = useState('');
@@ -209,7 +218,7 @@ export default function AdminApp() {
       {/* SIDEBAR */}
       <aside style={{ width: '260px', background: 'rgba(15, 23, 42, 0.8)', borderRight: '1px solid var(--surface-border)', padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column' }}>
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.25rem', marginBottom: '2.5rem', color: 'var(--accent-color)' }}>
-          <ShieldCheck /> Smart Admin
+          <ShieldCheck /> SmartVehicle Admin
         </h2>
         
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
@@ -258,6 +267,38 @@ export default function AdminApp() {
                  <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Bell size={18}/> Alerts Processed</p>
                  <h2 style={{ fontSize: '2.5rem' }}>{metrics.totalAlerts}</h2>
                </div>
+               <div style={{ background: 'var(--surface-color)', padding: '2rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
+                 <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Bell size={18}/> Active Alerts</p>
+                 <h2 style={{ fontSize: '2.5rem' }}>{metrics.activeAlerts}</h2>
+               </div>
+               <div style={{ background: 'var(--surface-color)', padding: '2rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
+                 <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><RefreshCw size={18}/> Pending Retries</p>
+                 <h2 style={{ fontSize: '2.5rem' }}>{metrics.pendingNotificationRetries}</h2>
+               </div>
+               <div style={{ background: 'var(--surface-color)', padding: '2rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
+                 <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShieldCheck size={18}/> Failed Alerts</p>
+                 <h2 style={{ fontSize: '2.5rem' }}>{metrics.failedAlerts}</h2>
+               </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
+              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
+                <h3 style={{ marginBottom: '1rem' }}>Most Reported Vehicles</h3>
+                {metrics.mostReportedVehicles?.length ? metrics.mostReportedVehicles.map((item: any) => (
+                  <div key={item.vehicleId} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.65rem 0', borderTop: '1px solid var(--surface-border)' }}>
+                    <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{item.vehicleId}</span>
+                    <strong>{item.count}</strong>
+                  </div>
+                )) : <p style={{ textAlign: 'left', margin: 0 }}>No alert history yet.</p>}
+              </div>
+              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
+                <h3 style={{ marginBottom: '1rem' }}>Peak Usage Hours</h3>
+                {metrics.peakUsageHours?.length ? metrics.peakUsageHours.map((item: any) => (
+                  <div key={item.hour} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.65rem 0', borderTop: '1px solid var(--surface-border)' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>{String(item.hour).padStart(2, '0')}:00</span>
+                    <strong>{item.count}</strong>
+                  </div>
+                )) : <p style={{ textAlign: 'left', margin: 0 }}>No hourly usage yet.</p>}
+              </div>
             </div>
           </div>
         )}

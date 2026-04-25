@@ -6,17 +6,35 @@ export interface AuthRequest extends Request {
   user?: admin.auth.DecodedIdToken;
 }
 
+const getBearerToken = (req: Request): string | null => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.split(" ")[1];
+  }
+
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  const sessionCookie = cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith("__session="));
+
+  return sessionCookie ? decodeURIComponent(sessionCookie.split("=")[1]) : null;
+};
+
 // Middleware to strongly verify normal user auth (for vehicle owners)
 export const requireAuth = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const token = getBearerToken(req);
+  if (!token) {
     res.status(401).json({ error: "Unauthorized: Missing authentication token" });
     return;
   }
 
-  const token = authHeader.split(" ")[1];
   try {
-    const decodedToken = await auth.verifyIdToken(token);
+    const decodedToken = token.split(".").length === 3
+      ? await auth.verifySessionCookie(token, true).catch(() => auth.verifyIdToken(token))
+      : await auth.verifyIdToken(token);
     req.user = decodedToken;
     next();
   } catch (error) {

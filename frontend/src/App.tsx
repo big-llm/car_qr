@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, User } from 'firebase/auth';
-import { CarFront, AlertCircle, Phone, Send, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { CarFront, AlertCircle, Phone, Send, CheckCircle2, ShieldAlert, WifiOff } from 'lucide-react';
 import './App.css';
 
 // Using relative routing through Express
@@ -13,6 +14,15 @@ type Vehicle = {
   vehicleName: string;
   make: string;
   model: string;
+};
+
+const getDeviceId = () => {
+  const storageKey = 'scanner_device_id';
+  const existing = localStorage.getItem(storageKey);
+  if (existing) return existing;
+  const next = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  localStorage.setItem(storageKey, next);
+  return next;
 };
 
 function App() {
@@ -34,7 +44,10 @@ function App() {
   const [alertSent, setAlertSent] = useState(false);
   const [activeAlertId, setActiveAlertId] = useState<string | null>(null);
   const [ownerResponse, setOwnerResponse] = useState<string | null>(null);
+  const [alertStatus, setAlertStatus] = useState<string | null>(null);
+  const [notificationStatus, setNotificationStatus] = useState<string | null>(null);
   const [sendingStatus, setSendingStatus] = useState('');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
     // 1. Intercept URL Hash / Search variables to extract cryptographic QR token natively
@@ -56,32 +69,71 @@ function App() {
     // 2. Map Firebase Auto-Login Session Hook to persist the user session efficiently
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        persistScannerSession(currentUser).catch(() => {});
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Poll for Owner Reaction
   useEffect(() => {
-    let interval: any;
-    if (activeAlertId && !ownerResponse && user) {
-       interval = setInterval(async () => {
-         try {
-           const tokenObj = await user.getIdToken(true);
-           const res = await fetch(`${API_BASE_URL}/qr/alert/${activeAlertId}/status`, {
-             headers: { 'Authorization': `Bearer ${tokenObj}` }
-           });
-           if (!res.ok) return;
-           const data = await res.json();
-           if (data.status === 'responded') {
-              setOwnerResponse(data.ownerResponse);
-              clearInterval(interval);
-           }
-         } catch(e) {}
-       }, 5000);
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  // Real-time owner reaction listener. Falls back to API checks only if Firestore is blocked.
+  useEffect(() => {
+    if (!activeAlertId || !user) return;
+
+    const unsubscribe = onSnapshot(
+      doc(db, 'alerts', activeAlertId),
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data: any = snapshot.data();
+        setAlertStatus(data.status || null);
+        setNotificationStatus(data.notificationStatus || null);
+        if (data.ownerResponse) setOwnerResponse(data.ownerResponse);
+      },
+      async () => {
+        try {
+          const tokenObj = await user.getIdToken();
+          const res = await fetch(`${API_BASE_URL}/qr/alert/${activeAlertId}/status`, {
+            headers: { 'Authorization': `Bearer ${tokenObj}` }
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          setAlertStatus(data.status || null);
+          setNotificationStatus(data.notificationStatus || null);
+          if (data.ownerResponse) setOwnerResponse(data.ownerResponse);
+        } catch(e) {}
+      }
+    );
+
+    return () => unsubscribe();
+  }, [activeAlertId, user]);
+
+  const persistScannerSession = async (currentUser: User) => {
+    const jwtToken = await currentUser.getIdToken();
+    await fetch(`${API_BASE_URL}/session`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${jwtToken}` }
+    });
+  };
+
+  const retryVehicleInfo = () => {
+    if (token) {
+      setError('');
+      setLoading(true);
+      fetchVehicleInfo(token);
     }
-    return () => clearInterval(interval);
-  }, [activeAlertId, ownerResponse, user]);
+  };
 
   const fetchVehicleInfo = async (qrToken: string) => {
     try {
@@ -135,9 +187,11 @@ function App() {
     setError('');
     setSendingStatus('Verifying Identity...');
     try {
+      if (!isOnline) throw new Error('You appear to be offline. Reconnect and try again.');
       // Execute cryptographically sound OTP challenge against Firebase
       if (confirmationResult) {
-         await confirmationResult.confirm(otp);
+         const credential = await confirmationResult.confirm(otp);
+         await persistScannerSession(credential.user);
       }
       
       // If code was physically correct, Auth state validates seamlessly. Push the Alert payload.
@@ -163,6 +217,7 @@ function App() {
     let location = null;
 
     try {
+      if (!isOnline) throw new Error('Network connection unavailable. Please retry once you are online.');
       // Opt-in Geolocation tracking for better detailing
       if ("geolocation" in navigator) {
         try {
@@ -185,7 +240,8 @@ function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${jwtToken}`
+          "Authorization": `Bearer ${jwtToken}`,
+          "X-Device-Id": getDeviceId()
         },
         body: JSON.stringify({ 
           type: actionToSend,
@@ -202,6 +258,8 @@ function App() {
       }
 
       setActiveAlertId(data.alertId);
+      setAlertStatus('pending');
+      setNotificationStatus('pending');
       setAlertSent(true);
     } catch (err: any) {
       setError(err.message || 'Transmission blocked by network limits.');
@@ -229,6 +287,7 @@ function App() {
          </div>
          <h1>Scan Unrecognized</h1>
          <p>{error}</p>
+         {token && <button className="btn-outline" onClick={retryVehicleInfo}>Retry Scan</button>}
       </div>
     );
   }
@@ -255,7 +314,15 @@ function App() {
                <CheckCircle2 size={64} style={{ margin: '0 auto' }} />
              </div>
              <h1>Message Relayed!</h1>
-             <p>The vehicle owner has been securely notified of the incident involving your alert.</p>
+             <p>The owner will be notified instantly. Your number stays private and this alert expires automatically.</p>
+             {alertStatus === 'expired' && (
+               <div style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid #f59e0b', color: '#f59e0b', borderRadius: '12px', padding: '1rem', marginTop: '1rem' }}>
+                 This alert expired without an owner response.
+               </div>
+             )}
+             {notificationStatus === 'pending' && (
+               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '1rem' }}>Notification retry is active if the first delivery channel fails.</p>
+             )}
              
              <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                <div className="spinner" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--accent-color)', width: '32px', height: '32px', borderWidth: '3px' }}></div>
@@ -281,7 +348,13 @@ function App() {
       </div>
 
       <h1>Notify Owner</h1>
-      <p style={{marginBottom: "1rem"}}>Select an incident code to instantly push a notification to this owner.</p>
+      <p style={{marginBottom: "1rem"}}>Secure and private system. The owner will be notified instantly without revealing their phone number.</p>
+
+      {!isOnline && (
+        <div style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <WifiOff size={16} /> Offline. Actions will be available after reconnecting.
+        </div>
+      )}
 
       {error && (
         <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger-color)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>

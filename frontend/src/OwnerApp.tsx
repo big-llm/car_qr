@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Car, Bell, Settings, Send, LayoutDashboard, ShieldAlert,
-  CheckCircle2, Phone, LogOut, RefreshCw, Activity
+  CheckCircle2, Phone, LogOut, RefreshCw, Activity, Clock, MessageCircle,
+  Plus, Trash2, Edit3
 } from 'lucide-react';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, User } from 'firebase/auth';
+import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import QRCode from 'react-qr-code';
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -12,20 +14,27 @@ import './App.css';
 
 const API_BASE_URL = '/api/user';
 
-export default function OwnerApp() {
+type OwnerAppProps = {
+  initialMode?: 'login' | 'register';
+};
+
+export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const [user, setUser] = useState<User | null>(null);
   const [jwt, setJwt] = useState<string>('');
   const [loadingUser, setLoadingUser] = useState(true);
   
   // App views
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'vehicles' | 'alerts' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'vehicles' | 'alerts' | 'profile'>('dashboard');
 
   // OTP State
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(initialMode);
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [showOtpInput, setShowOtpInput] = useState(false);
   const [confirmationResult, setConfirmationResult] = useState<any>(null);
   const [authStatus, setAuthStatus] = useState('');
+  const [registerName, setRegisterName] = useState('');
+  const [registerAddress, setRegisterAddress] = useState('');
 
   // Data
   const [profile, setProfile] = useState<any>(null);
@@ -39,6 +48,20 @@ export default function OwnerApp() {
   const [editAddress, setEditAddress] = useState('');
   const [editWhatsapp, setEditWhatsapp] = useState('');
   const [editAltPhone, setEditAltPhone] = useState('');
+
+  // Vehicle CRUD
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+  const [vehiclePlate, setVehiclePlate] = useState('');
+  const [vehicleName, setVehicleName] = useState('');
+  const [vehicleMake, setVehicleMake] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+
+  // History filters
+  const [historyVehicleId, setHistoryVehicleId] = useState('');
+  const [historyStatus, setHistoryStatus] = useState('');
+  const [historyFrom, setHistoryFrom] = useState('');
+  const [historyTo, setHistoryTo] = useState('');
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
@@ -56,14 +79,42 @@ export default function OwnerApp() {
     if (jwt && user) {
       if (activeTab === 'dashboard') loadDashboard();
       if (activeTab === 'vehicles') fetchVehicles();
-      if (activeTab === 'alerts') fetchAlerts();
+      if (activeTab === 'alerts') loadAlertsView();
+      if (activeTab === 'profile') loadProfile();
     }
   }, [jwt, activeTab, user]);
+
+  useEffect(() => {
+    if (!user || vehicles.length === 0) return;
+
+    const vehicleIds = vehicles.map(v => v.id).slice(0, 10);
+    const alertsQuery = query(
+      collection(db, 'alerts'),
+      where('vehicleId', 'in', vehicleIds),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(alertsQuery, (snapshot) => {
+      setAlerts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, () => {});
+
+    return () => unsubscribe();
+  }, [user, vehicles]);
 
   const authFetch = async (endpoint: string, options: any = {}) => {
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers: { ...options.headers, 'Authorization': `Bearer ${jwt}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+    return data;
+  };
+
+  const authFetchWithToken = async (endpoint: string, token: string, options: any = {}) => {
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: { ...options.headers, 'Authorization': `Bearer ${token}` }
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Request failed");
@@ -96,6 +147,25 @@ export default function OwnerApp() {
     setLoadingData(false);
   };
 
+  const loadProfile = async () => {
+    setLoadingData(true);
+    try { setProfile(await authFetch('/profile')); } catch(e) { console.error(e); }
+    setLoadingData(false);
+  };
+
+  const loadAlertsView = async () => {
+    setLoadingData(true);
+    try {
+      const [vData, aData] = await Promise.all([
+        authFetch('/vehicles'),
+        authFetch('/alerts')
+      ]);
+      setVehicles(vData);
+      setAlerts(aData);
+    } catch(e) { console.error(e); }
+    setLoadingData(false);
+  };
+
   // === AUTHENTICATION ===
   const setupRecaptcha = () => {
     if (!window.recaptchaVerifier) {
@@ -123,14 +193,86 @@ export default function OwnerApp() {
     if (!otp) return;
     setAuthStatus('Verifying...');
     try {
-      if (confirmationResult) await confirmationResult.confirm(otp);
-      // Let onAuthStateChanged handle the rest
-    } catch (err) {
-      alert('Invalid OTP code.');
+      if (confirmationResult) {
+        const credential = await confirmationResult.confirm(otp);
+        if (authMode === 'register') {
+          setAuthStatus('Creating profile...');
+          const token = await credential.user.getIdToken(true);
+          await authFetchWithToken('/register', token, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: registerName,
+              address: registerAddress
+            })
+          });
+          window.history.replaceState(null, '', '/owner');
+        }
+      }
+    } catch (err: any) {
+      alert(err.message || 'Invalid OTP code.');
     } finally { setAuthStatus(''); }
   };
 
-  const handleLogout = () => { auth.signOut(); };
+  const handleLogout = () => {
+    auth.signOut();
+    setJwt('');
+    setProfile(null);
+    setVehicles([]);
+    setAlerts([]);
+    setShowOtpInput(false);
+    setOtp('');
+  };
+
+  const resetVehicleForm = () => {
+    setShowVehicleForm(false);
+    setEditingVehicleId(null);
+    setVehiclePlate('');
+    setVehicleName('');
+    setVehicleMake('');
+    setVehicleModel('');
+  };
+
+  const startEditVehicle = (vehicle: any) => {
+    setShowVehicleForm(true);
+    setEditingVehicleId(vehicle.id);
+    setVehiclePlate(vehicle.licensePlate || '');
+    setVehicleName(vehicle.vehicleName || '');
+    setVehicleMake(vehicle.make || '');
+    setVehicleModel(vehicle.model || '');
+  };
+
+  const saveVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      licensePlate: vehiclePlate,
+      vehicleName,
+      make: vehicleMake,
+      model: vehicleModel
+    };
+
+    try {
+      await authFetch(editingVehicleId ? `/vehicles/${editingVehicleId}` : '/vehicles', {
+        method: editingVehicleId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      resetVehicleForm();
+      fetchVehicles();
+    } catch (err: any) {
+      alert(err.message || "Failed to save vehicle");
+    }
+  };
+
+  const deleteVehicle = async (vehicleId: string) => {
+    if (!window.confirm("Delete this vehicle and invalidate its QR code?")) return;
+    try {
+      await authFetch(`/vehicles/${vehicleId}`, { method: "DELETE" });
+      fetchVehicles();
+    } catch (err: any) {
+      alert(err.message || "Failed to delete vehicle");
+    }
+  };
 
   // Actions
   const handleAlertResponse = async (alertId: string, responseCode: string) => {
@@ -144,6 +286,23 @@ export default function OwnerApp() {
     } catch(e) { alert("Failed to respond"); }
   };
 
+  const refreshHistory = async () => {
+    const params = new URLSearchParams();
+    if (historyVehicleId) params.set('vehicleId', historyVehicleId);
+    if (historyStatus) params.set('status', historyStatus);
+    if (historyFrom) params.set('from', historyFrom);
+    if (historyTo) params.set('to', historyTo);
+
+    setLoadingData(true);
+    try {
+      setAlerts(await authFetch(`/alerts/history?${params.toString()}`));
+    } catch (err: any) {
+      alert(err.message || "Failed to load history");
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
   const handleRegenerateQR = async (vehicleId: string) => {
      if(!window.confirm("IMPORTANT: This will invalidate your physically printed QR sticker immediately. Anyone scanning the old sticker will see an error. Are you sure?")) return;
      try {
@@ -153,8 +312,6 @@ export default function OwnerApp() {
   };
 
   const handleDownloadSticker = async (vehicle: any) => {
-    const scanUrl = `${window.location.protocol}//${window.location.host}/qr/${vehicle.qrToken}`;
-    
     // Create a temporary hidden sticker element for capturing
     const sticker = document.createElement('div');
     sticker.id = 'temp-sticker';
@@ -191,7 +348,7 @@ export default function OwnerApp() {
 
     // Wait for QR image to load
     const qrImg = document.getElementById(`qr-image-${vehicle.id}`) as HTMLImageElement;
-    qrImg.src = await generateQRDataURL(scanUrl);
+    qrImg.src = await generateQRDataURL();
 
     try {
       // Use higher scale for print quality
@@ -220,7 +377,7 @@ export default function OwnerApp() {
     }
   };
 
-  const generateQRDataURL = (url: string): Promise<string> => {
+  const generateQRDataURL = (): Promise<string> => {
     return new Promise((resolve) => {
       const svg = document.querySelector(`.qr-hidden svg`) as SVGElement;
       if (!svg) return resolve("");
@@ -249,20 +406,33 @@ export default function OwnerApp() {
     return (
       <div className="container fade-in">
         <div style={{ textAlign: 'center', marginBottom: '1.5rem', color: 'var(--accent-color)' }}>
-          <ShieldAlert size={48} style={{ margin: '0 auto' }} />
+          <Car size={48} style={{ margin: '0 auto' }} />
         </div>
-        <h1>Owner Portal</h1>
-        <p style={{marginBottom: "2rem"}}>Securely log in to manage your vehicles and respond to active incident alerts directly from your phone.</p>
+        <h1>{authMode === 'register' ? 'Create Owner Account' : 'Owner Login'}</h1>
+        <p style={{marginBottom: "2rem"}}>{authMode === 'register' ? 'Register with OTP, create your profile, and start managing vehicles.' : 'Securely log in to manage vehicles and respond to active incident alerts.'}</p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.5rem' }}>
+          <button type="button" onClick={() => { setAuthMode('login'); window.history.replaceState(null, '', '/login'); }} className={authMode === 'login' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Login</button>
+          <button type="button" onClick={() => { setAuthMode('register'); window.history.replaceState(null, '', '/register'); }} className={authMode === 'register' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Register</button>
+        </div>
         
         <form onSubmit={showOtpInput ? verifyOTP : requestOTP}>
           {!showOtpInput ? (
-            <div className="input-group">
-              <label>Registered Phone Number</label>
-              <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(15,23,42,0.5)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
-                 <Phone size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
-                 <input type="tel" placeholder="+1 234 567 8900" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'white' }} autoFocus />
+            <>
+              {authMode === 'register' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+                  <input type="text" placeholder="Full name" value={registerName} onChange={(e) => setRegisterName(e.target.value)} />
+                  <input type="text" placeholder="Address or parking location" value={registerAddress} onChange={(e) => setRegisterAddress(e.target.value)} />
+                </div>
+              )}
+              <div className="input-group">
+                <label>{authMode === 'register' ? 'Phone Number' : 'Registered Phone Number'}</label>
+                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(15,23,42,0.5)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
+                   <Phone size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
+                   <input type="tel" placeholder="+1 234 567 8900" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'white' }} autoFocus />
+                </div>
               </div>
-            </div>
+            </>
           ) : (
             <div className="input-group fade-in">
               <label>SMS Verification Code</label>
@@ -273,7 +443,7 @@ export default function OwnerApp() {
           <div id="owner-recaptcha"></div>
           
           <button className="btn-primary" disabled={!!authStatus} type="submit" style={{ marginTop: '1.5rem' }}>
-            {authStatus ? (<><div className="spinner" style={{width: '16px', height: '16px', borderWidth: '2px'}}></div> {authStatus}</>) : (<><Send size={18} /> {showOtpInput ? 'Secure Login' : 'Send Code'}</>)}
+            {authStatus ? (<><div className="spinner" style={{width: '16px', height: '16px', borderWidth: '2px'}}></div> {authStatus}</>) : (<><Send size={18} /> {showOtpInput ? (authMode === 'register' ? 'Create Account' : 'Secure Login') : 'Send Code'}</>)}
           </button>
         </form>
       </div>
@@ -281,13 +451,14 @@ export default function OwnerApp() {
   }
 
   // === AUTHENTICATED MOBILE-OPTIMIZED VIEWS ===
-  const unreadCount = alerts.filter(a => a.status === 'delivered' || a.status === 'sent').length;
+  const activeAlertStatuses = ['pending', 'delivered', 'pending_retry'];
+  const unreadCount = alerts.filter(a => activeAlertStatuses.includes(a.status)).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--background-color)', color: 'white', maxWidth: '600px', margin: '0 auto', boxShadow: '0 0 50px rgba(0,0,0,0.5)' }}>
       {/* Top Header */}
       <header style={{ padding: '1.25rem 1.5rem', background: 'rgba(15, 23, 42, 0.95)', borderBottom: '1px solid var(--surface-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
-         <h2 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}><ShieldAlert size={20} color="var(--accent-color)"/> My Garage</h2>
+         <h2 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}><ShieldAlert size={20} color="var(--accent-color)"/> SmartVehicle Garage</h2>
          {profile?.name && <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hi, {profile.name}</span>}
       </header>
 
@@ -334,6 +505,22 @@ export default function OwnerApp() {
            <div className="fade-in">
              <h1 style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>My Vehicles</h1>
              <p style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem'}}>Manage connected vehicles and download official QR tags.</p>
+             <button onClick={() => setShowVehicleForm(true)} className="btn-primary" style={{ padding: '0.75rem', marginBottom: '1rem' }}>
+               <Plus size={16}/> Add Vehicle
+             </button>
+
+             {showVehicleForm && (
+               <form onSubmit={saveVehicle} style={{ background: 'var(--surface-color)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--surface-border)', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                 <input type="text" placeholder="License plate" value={vehiclePlate} onChange={(e) => setVehiclePlate(e.target.value)} required />
+                 <input type="text" placeholder="Vehicle name" value={vehicleName} onChange={(e) => setVehicleName(e.target.value)} />
+                 <input type="text" placeholder="Make" value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} />
+                 <input type="text" placeholder="Model" value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} />
+                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                   <button type="submit" className="btn-primary" style={{ padding: '0.75rem' }}>{editingVehicleId ? 'Save Changes' : 'Create Vehicle'}</button>
+                   <button type="button" onClick={resetVehicleForm} className="btn-outline" style={{ padding: '0.75rem' }}>Cancel</button>
+                 </div>
+               </form>
+             )}
              
              {loadingData ? <div className="spinner"></div> : (
                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -346,9 +533,17 @@ export default function OwnerApp() {
                              <h2 style={{ fontSize: '1.4rem', margin: 0 }}>{v.licensePlate}</h2>
                              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>{v.make} {v.model}</p>
                            </div>
-                           <button onClick={() => handleRegenerateQR(v.id)} className="btn-outline" style={{ padding: '0.4rem', border: 'none', background: 'rgba(239,68,68,0.1)', color: 'var(--danger-color)' }} title="Invalidate old QR">
-                             <RefreshCw size={16}/>
-                           </button>
+                           <div style={{ display: 'flex', gap: '0.35rem' }}>
+                             <button onClick={() => startEditVehicle(v)} className="btn-outline" style={{ padding: '0.4rem', border: 'none', width: 'auto' }} title="Edit vehicle">
+                               <Edit3 size={16}/>
+                             </button>
+                             <button onClick={() => handleRegenerateQR(v.id)} className="btn-outline" style={{ padding: '0.4rem', border: 'none', background: 'rgba(239,68,68,0.1)', color: 'var(--danger-color)', width: 'auto' }} title="Invalidate old QR">
+                               <RefreshCw size={16}/>
+                             </button>
+                             <button onClick={() => deleteVehicle(v.id)} className="btn-danger" style={{ padding: '0.4rem', border: 'none', width: 'auto' }} title="Delete vehicle">
+                               <Trash2 size={16}/>
+                             </button>
+                           </div>
                         </div>
                         
                         <div style={{ background: 'rgba(0,0,0,0.5)', padding: '1rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -379,12 +574,34 @@ export default function OwnerApp() {
          {activeTab === 'alerts' && (
            <div className="fade-in">
              <h1 style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>Incident Alerts</h1>
-             <p style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem'}}>Live monitoring of all active QR scans and incident reports.</p>
+             <p style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem'}}>Live monitoring plus last 1 year alert history.</p>
+
+             <div style={{ background: 'var(--surface-color)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--surface-border)', marginBottom: '1rem', display: 'grid', gap: '0.75rem' }}>
+               <select value={historyVehicleId} onChange={(e) => setHistoryVehicleId(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(15,23,42,0.5)', color: 'white', border: '1px solid var(--surface-border)' }}>
+                 <option value="">All vehicles</option>
+                 {vehicles.map(v => <option key={v.id} value={v.id}>{v.licensePlate}</option>)}
+               </select>
+               <select value={historyStatus} onChange={(e) => setHistoryStatus(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(15,23,42,0.5)', color: 'white', border: '1px solid var(--surface-border)' }}>
+                 <option value="">All statuses</option>
+                 <option value="delivered">Delivered</option>
+                 <option value="responded">Responded</option>
+                 <option value="resolved">Resolved</option>
+                 <option value="expired">Expired</option>
+                 <option value="failed">Failed</option>
+               </select>
+               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                 <input type="date" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
+                 <input type="date" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
+               </div>
+               <button onClick={refreshHistory} className="btn-outline" style={{ padding: '0.75rem' }}>
+                 <RefreshCw size={16}/> Apply History Filters
+               </button>
+             </div>
              
              {loadingData ? <div className="spinner"></div> : (
                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                  {alerts.map(a => {
-                    const isNew = a.status !== 'responded';
+                    const isNew = activeAlertStatuses.includes(a.status);
                     const veh = vehicles.find(v => v.id === a.vehicleId);
                     return (
                       <div key={a.id} style={{ background: isNew ? 'rgba(56, 189, 248, 0.05)' : 'var(--surface-color)', border: isNew ? '1px solid var(--accent-color)' : '1px solid var(--surface-border)', padding: '1.25rem', borderRadius: '16px' }}>
@@ -397,18 +614,44 @@ export default function OwnerApp() {
                         <p style={{ margin: '0.5rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}><Car size={14} style={{display:'inline', verticalAlign:'sub'}}/> {veh ? veh.licensePlate : 'Unknown Vehicle'}</p>
                         
                         {isNew && (
-                          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '1rem' }}>
                              <button onClick={() => handleAlertResponse(a.id, 'on_my_way')} className="btn-primary" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
                                 On My Way
                              </button>
-                             <button onClick={() => handleAlertResponse(a.id, 'acknowledged')} className="btn-outline" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
-                                Acknowledge
+                             <button onClick={() => handleAlertResponse(a.id, 'call_me')} className="btn-outline" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
+                                <Phone size={14}/> Call Me
+                             </button>
+                             <button onClick={() => handleAlertResponse(a.id, 'will_take_time')} className="btn-outline" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
+                                <Clock size={14}/> Will Take Time
+                             </button>
+                             <button onClick={() => handleAlertResponse(a.id, 'not_my_vehicle')} className="btn-outline" style={{ padding: '0.6rem', fontSize: '0.85rem' }}>
+                                Not My Vehicle
                              </button>
                           </div>
                         )}
+                        {a.status === 'pending_retry' && (
+                          <div style={{ marginTop: '1rem', color: '#f59e0b', fontSize: '0.85rem' }}>
+                            Notification retry queued after a delivery failure.
+                          </div>
+                        )}
                         {a.status === 'responded' && (
+                          <>
+                            <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success-color)', fontSize: '0.85rem' }}>
+                               <MessageCircle size={16}/> Responded ({a.ownerResponse?.replace(/_/g, ' ')})
+                            </div>
+                            <button onClick={() => handleAlertResponse(a.id, 'resolved')} className="btn-outline" style={{ padding: '0.6rem', fontSize: '0.85rem', marginTop: '0.75rem' }}>
+                              <CheckCircle2 size={16}/> Mark Resolved
+                            </button>
+                          </>
+                        )}
+                        {a.status === 'resolved' && (
                           <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success-color)', fontSize: '0.85rem' }}>
-                             <CheckCircle2 size={16}/> Responded ({a.ownerResponse?.replace(/_/g, ' ')})
+                             <CheckCircle2 size={16}/> Resolved
+                          </div>
+                        )}
+                        {a.status === 'expired' && (
+                          <div style={{ marginTop: '1rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                             Alert expired without a response.
                           </div>
                         )}
                      </div>
@@ -419,9 +662,9 @@ export default function OwnerApp() {
            </div>
          )}
 
-         {activeTab === 'settings' && (
+         {activeTab === 'profile' && (
            <div className="fade-in">
-             <h1 style={{fontSize: '1.5rem', marginBottom: '1.5rem'}}>Account Settings</h1>
+             <h1 style={{fontSize: '1.5rem', marginBottom: '1.5rem'}}>Profile</h1>
              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
                  {!editingProfile ? (
                    <>
@@ -505,9 +748,9 @@ export default function OwnerApp() {
             <Bell size={22}/>
             <span style={{fontSize: '0.65rem'}}>Alerts</span>
          </button>
-         <button onClick={()=>setActiveTab('settings')} style={{ background: 'none', border: 'none', color: activeTab==='settings'?'var(--accent-color)':'var(--text-secondary)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+         <button onClick={()=>setActiveTab('profile')} style={{ background: 'none', border: 'none', color: activeTab==='profile'?'var(--accent-color)':'var(--text-secondary)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
             <Settings size={22}/>
-            <span style={{fontSize: '0.65rem'}}>Settings</span>
+            <span style={{fontSize: '0.65rem'}}>Profile</span>
          </button>
       </nav>
     </div>

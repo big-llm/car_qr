@@ -46,6 +46,8 @@ service cloud.firestore {
       // Vehicle owner can read alerts sent to their vehicles
       allow read: if isAuthenticated() && exists(/databases/$(database)/documents/vehicles/$(resource.data.vehicleId)) 
                     && get(/databases/$(database)/documents/vehicles/$(resource.data.vehicleId)).data.userId == request.auth.uid;
+      // Scanner can listen only to alerts they created after OTP verification.
+      allow read: if isAuthenticated() && resource.data.senderUid == request.auth.uid;
       // Nobody except Admin/Functions can write or update alerts directly. Alerts should be triggered via endpoints/Functions.
       allow write: if false; 
     }

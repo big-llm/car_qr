@@ -70,7 +70,8 @@ app.route("/users")
       name: Joi.string().allow("").optional(),
       address: Joi.string().allow("").optional(),
       whatsappNumber: Joi.string().allow("").optional(),
-      alternativeNumber: Joi.string().allow("").optional()
+      alternativeNumber: Joi.string().allow("").optional(),
+      role: Joi.string().valid("owner", "admin").default("owner")
     });
 
     const { error } = schema.validate(req.body);
@@ -78,7 +79,7 @@ app.route("/users")
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { phoneNumber, name, address, whatsappNumber, alternativeNumber } = req.body;
+    const { phoneNumber, name, address, whatsappNumber, alternativeNumber, role } = req.body;
     try {
       
       const userRecord = await auth.createUser({ phoneNumber, displayName: name });
@@ -88,6 +89,7 @@ app.route("/users")
         address: address || "",
         whatsappNumber: whatsappNumber || "",
         alternativeNumber: alternativeNumber || "",
+        role,
         status: "active",
         createdAt: new Date().toISOString(),
       };
@@ -98,6 +100,30 @@ app.route("/users")
       res.status(500).json({ error: error.message });
     }
   });
+
+app.put("/users/:userId", async (req, res) => {
+  const { userId } = req.params;
+  const schema = Joi.object({
+    name: Joi.string().allow("").optional(),
+    address: Joi.string().allow("").optional(),
+    whatsappNumber: Joi.string().allow("").optional(),
+    alternativeNumber: Joi.string().allow("").optional(),
+    role: Joi.string().valid("owner", "admin").optional()
+  }).min(1);
+
+  const { error, value } = schema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ error: error.details[0].message });
+  }
+
+  try {
+    const updates = { ...value, updatedAt: new Date().toISOString() };
+    await db.collection("users").doc(userId).update(updates);
+    res.json({ success: true, updates });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.put("/users/:userId/status", async (req, res) => {
   const { status } = req.body; // 'active', 'blocked'
@@ -240,14 +266,54 @@ app.get("/dashboard-metrics", async (req, res) => {
   try {
     // Note: For real scale this should be handled by counter functions or aggregations,
     // count() is supported in Firestore recent versions and is efficient.
-    const usersCount = (await db.collection("users").count().get()).data().count;
-    const vehiclesCount = (await db.collection("vehicles").count().get()).data().count;
-    const alertsCount = (await db.collection("alerts").count().get()).data().count;
+    const [
+      usersCountSnap,
+      vehiclesCountSnap,
+      alertsCountSnap,
+      activeAlertsSnap,
+      failedAlertsSnap,
+      pendingRetrySnap,
+      recentAlertsSnap
+    ] = await Promise.all([
+      db.collection("users").count().get(),
+      db.collection("vehicles").count().get(),
+      db.collection("alerts").count().get(),
+      db.collection("alerts").where("status", "in", ["pending", "delivered", "pending_retry"]).count().get(),
+      db.collection("alerts").where("status", "==", "failed").count().get(),
+      db.collection("alerts").where("notificationStatus", "==", "pending").count().get(),
+      db.collection("alerts").orderBy("timestamp", "desc").limit(500).get()
+    ]);
+
+    const vehicleCounts = new Map<string, number>();
+    const peakHourCounts = new Map<number, number>();
+    recentAlertsSnap.docs.forEach((doc) => {
+      const alert = doc.data();
+      if (alert.vehicleId) vehicleCounts.set(alert.vehicleId, (vehicleCounts.get(alert.vehicleId) || 0) + 1);
+      if (alert.timestamp) {
+        const hour = new Date(alert.timestamp).getHours();
+        peakHourCounts.set(hour, (peakHourCounts.get(hour) || 0) + 1);
+      }
+    });
+
+    const mostReportedVehicles = Array.from(vehicleCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([vehicleId, count]) => ({ vehicleId, count }));
+
+    const peakUsageHours = Array.from(peakHourCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([hour, count]) => ({ hour, count }));
     
     res.json({
-      totalUsers: usersCount,
-      totalVehicles: vehiclesCount,
-      totalAlerts: alertsCount,
+      totalUsers: usersCountSnap.data().count,
+      totalVehicles: vehiclesCountSnap.data().count,
+      totalAlerts: alertsCountSnap.data().count,
+      activeAlerts: activeAlertsSnap.data().count,
+      failedAlerts: failedAlertsSnap.data().count,
+      pendingNotificationRetries: pendingRetrySnap.data().count,
+      mostReportedVehicles,
+      peakUsageHours,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
