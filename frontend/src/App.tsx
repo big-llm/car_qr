@@ -388,14 +388,14 @@ function App() {
                
                {!showOtpInput ? (
                  <div className="input-group">
-                   <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(15,23,42,0.5)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem', marginTop: '1rem' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.92)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem', marginTop: '1rem' }}>
                       <Phone size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
                       <input 
                         type="tel" 
                         placeholder="+1 234 567 8900" 
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', fontSize: '1rem', outline: 'none', color: 'white' }}
+                        style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', fontSize: '1rem', outline: 'none', color: 'var(--text-primary)' }}
                         autoFocus
                       />
                    </div>

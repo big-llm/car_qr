@@ -427,9 +427,9 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
               )}
               <div className="input-group">
                 <label>{authMode === 'register' ? 'Phone Number' : 'Registered Phone Number'}</label>
-                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(15,23,42,0.5)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.92)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
                    <Phone size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
-                   <input type="tel" placeholder="+1 234 567 8900" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'white' }} autoFocus />
+                   <input type="tel" placeholder="+1 234 567 8900" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'var(--text-primary)' }} autoFocus />
                 </div>
               </div>
             </>
@@ -455,15 +455,15 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const unreadCount = alerts.filter(a => activeAlertStatuses.includes(a.status)).length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--background-color)', color: 'white', maxWidth: '600px', margin: '0 auto', boxShadow: '0 0 50px rgba(0,0,0,0.5)' }}>
+    <div className="owner-shell">
       {/* Top Header */}
-      <header style={{ padding: '1.25rem 1.5rem', background: 'rgba(15, 23, 42, 0.95)', borderBottom: '1px solid var(--surface-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
+      <header className="owner-topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
          <h2 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}><ShieldAlert size={20} color="var(--accent-color)"/> SmartVehicle Garage</h2>
          {profile?.name && <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hi, {profile.name}</span>}
       </header>
 
       {/* Main Tab Content */}
-      <main style={{ flex: 1, padding: '1.5rem', overflowY: 'auto', paddingBottom: '80px' }}>
+      <main className="owner-main">
          {activeTab === 'dashboard' && (
            <div className="fade-in">
              <h1 style={{fontSize: '1.5rem', marginBottom: '1.5rem'}}>Overview</h1>
@@ -577,11 +577,11 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
              <p style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem'}}>Live monitoring plus last 1 year alert history.</p>
 
              <div style={{ background: 'var(--surface-color)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--surface-border)', marginBottom: '1rem', display: 'grid', gap: '0.75rem' }}>
-               <select value={historyVehicleId} onChange={(e) => setHistoryVehicleId(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(15,23,42,0.5)', color: 'white', border: '1px solid var(--surface-border)' }}>
+               <select value={historyVehicleId} onChange={(e) => setHistoryVehicleId(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }}>
                  <option value="">All vehicles</option>
                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.licensePlate}</option>)}
                </select>
-               <select value={historyStatus} onChange={(e) => setHistoryStatus(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(15,23,42,0.5)', color: 'white', border: '1px solid var(--surface-border)' }}>
+               <select value={historyStatus} onChange={(e) => setHistoryStatus(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }}>
                  <option value="">All statuses</option>
                  <option value="delivered">Delivered</option>
                  <option value="responded">Responded</option>
@@ -668,11 +668,11 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
                  {!editingProfile ? (
                    <>
-                    <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem'}}>Authenticated as: <strong style={{color:'white'}}>{user?.phoneNumber}</strong></p>
+                    <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem'}}>Authenticated as: <strong style={{color:'var(--text-primary)'}}>{user?.phoneNumber}</strong></p>
                     <div style={{ marginBottom: '1.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      <p style={{ margin: '0.2rem 0' }}>Name: <strong style={{color:'white'}}>{profile?.name || 'Not Set'}</strong></p>
-                      <p style={{ margin: '0.2rem 0' }}>Address: <strong style={{color:'white'}}>{profile?.address || 'Not Set'}</strong></p>
-                      <p style={{ margin: '0.2rem 0' }}>WhatsApp: <strong style={{color:'white'}}>{profile?.whatsappNumber || 'Not Set'}</strong></p>
+                      <p style={{ margin: '0.2rem 0' }}>Name: <strong style={{color:'var(--text-primary)'}}>{profile?.name || 'Not Set'}</strong></p>
+                      <p style={{ margin: '0.2rem 0' }}>Address: <strong style={{color:'var(--text-primary)'}}>{profile?.address || 'Not Set'}</strong></p>
+                      <p style={{ margin: '0.2rem 0' }}>WhatsApp: <strong style={{color:'var(--text-primary)'}}>{profile?.whatsappNumber || 'Not Set'}</strong></p>
                     </div>
                     
                     <button onClick={() => {
@@ -689,10 +689,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                    <div className="fade-in">
                      <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Edit Contact Profile</h3>
                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <input type="text" placeholder="Full Name" value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
-                        <input type="text" placeholder="WhatsApp Number" value={editWhatsapp} onChange={e => setEditWhatsapp(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
-                        <input type="text" placeholder="Alternative Phone" value={editAltPhone} onChange={e => setEditAltPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
-                        <textarea placeholder="Physical Address" value={editAddress} onChange={e => setEditAddress(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', minHeight: '80px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid var(--surface-border)' }} />
+                        <input type="text" placeholder="Full Name" value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
+                        <input type="text" placeholder="WhatsApp Number" value={editWhatsapp} onChange={e => setEditWhatsapp(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
+                        <input type="text" placeholder="Alternative Phone" value={editAltPhone} onChange={e => setEditAltPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
+                        <textarea placeholder="Physical Address" value={editAddress} onChange={e => setEditAddress(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', minHeight: '80px' }} />
                      </div>
                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
                         <button onClick={async () => {
@@ -734,21 +734,21 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       </main>
 
       {/* Mobile Fixed Bottom Navigation */}
-      <nav style={{ display: 'flex', justifyContent: 'space-around', position: 'fixed', bottom: 0, width: '100%', maxWidth: '600px', background: 'rgba(15,23,42,0.95)', backdropFilter: 'blur(10px)', borderTop: '1px solid var(--surface-border)', zIndex: 10, paddingBottom: 'env(safe-area-inset-bottom)' }}>
-         <button onClick={()=>setActiveTab('dashboard')} style={{ background: 'none', border: 'none', color: activeTab==='dashboard'?'var(--accent-color)':'var(--text-secondary)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+      <nav className="owner-nav">
+         <button className={activeTab==='dashboard' ? 'is-active' : ''} onClick={()=>setActiveTab('dashboard')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
             <LayoutDashboard size={22}/>
             <span style={{fontSize: '0.65rem'}}>Home</span>
          </button>
-         <button onClick={()=>setActiveTab('vehicles')} style={{ background: 'none', border: 'none', color: activeTab==='vehicles'?'var(--accent-color)':'var(--text-secondary)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+         <button className={activeTab==='vehicles' ? 'is-active' : ''} onClick={()=>setActiveTab('vehicles')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
             <Car size={22}/>
             <span style={{fontSize: '0.65rem'}}>Vehicles</span>
          </button>
-         <button onClick={()=>setActiveTab('alerts')} style={{ background: 'none', border: 'none', color: activeTab==='alerts'?'var(--accent-color)':'var(--text-secondary)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', position: 'relative' }}>
+         <button className={activeTab==='alerts' ? 'is-active' : ''} onClick={()=>setActiveTab('alerts')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', position: 'relative' }}>
             {unreadCount > 0 && <span style={{position:'absolute', top: '10px', right: '15px', background: 'var(--danger-color)', width: '10px', height: '10px', borderRadius: '50%'}}></span>}
             <Bell size={22}/>
             <span style={{fontSize: '0.65rem'}}>Alerts</span>
          </button>
-         <button onClick={()=>setActiveTab('profile')} style={{ background: 'none', border: 'none', color: activeTab==='profile'?'var(--accent-color)':'var(--text-secondary)', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+         <button className={activeTab==='profile' ? 'is-active' : ''} onClick={()=>setActiveTab('profile')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
             <Settings size={22}/>
             <span style={{fontSize: '0.65rem'}}>Profile</span>
          </button>
