@@ -52,13 +52,23 @@ exports.expireAlerts = functions.pubsub.schedule("every 5 minutes").onRun(async 
     console.log(`Expired ${expired} old alerts`);
 });
 exports.onUserSignup = functions.auth.user().onCreate(async (user) => {
-    const phoneNumber = user.phoneNumber || "Unknown";
+    const now = new Date().toISOString();
+    const phoneNumber = user.phoneNumber || "";
     await firebase_1.db.collection("users").doc(user.uid).set({
         phoneNumber,
         name: user.displayName || "",
+        address: "",
+        whatsappNumber: "",
+        alternativeNumber: "",
+        notificationPreferences: {
+            sms: true,
+            whatsapp: false,
+            push: false
+        },
+        role: "owner",
         status: "active",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        createdAt: now,
+        updatedAt: now
     }, { merge: true });
 });
 exports.onUserDelete = functions.auth.user().onDelete(async (user) => {

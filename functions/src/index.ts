@@ -20,13 +20,23 @@ export const expireAlerts = functions.pubsub.schedule("every 5 minutes").onRun(a
 });
 
 export const onUserSignup = functions.auth.user().onCreate(async (user) => {
-  const phoneNumber = user.phoneNumber || "Unknown";
+  const now = new Date().toISOString();
+  const phoneNumber = user.phoneNumber || "";
   await db.collection("users").doc(user.uid).set({
     phoneNumber,
     name: user.displayName || "",
+    address: "",
+    whatsappNumber: "",
+    alternativeNumber: "",
+    notificationPreferences: {
+      sms: true,
+      whatsapp: false,
+      push: false
+    },
+    role: "owner",
     status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    createdAt: now,
+    updatedAt: now
   }, { merge: true });
 });
 

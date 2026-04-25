@@ -41,13 +41,45 @@ const vehicleUpdateSchema = Joi.object({
   model: Joi.string().allow("").optional()
 }).min(1);
 
+const defaultNotificationPreferences = {
+  sms: true,
+  whatsapp: false,
+  push: false
+};
+
+const getVerifiedPhoneNumber = (req: AuthRequest): string => {
+  const token = req.user as any;
+  return token?.phone_number || token?.firebase?.identities?.phone?.[0] || "";
+};
+
+const buildOwnerProfile = (phoneNumber: string, now: string) => ({
+  phoneNumber,
+  name: "",
+  address: "",
+  whatsappNumber: "",
+  alternativeNumber: "",
+  notificationPreferences: defaultNotificationPreferences,
+  role: "owner",
+  status: "active",
+  createdAt: now,
+  updatedAt: now
+});
+
 const ensureOwnerProfile = async (req: AuthRequest, res: express.Response, next: express.NextFunction): Promise<void> => {
   const uid = req.user!.uid;
   const userRef = db.collection("users").doc(uid);
   const userSnap = await userRef.get();
+  const phoneNumber = getVerifiedPhoneNumber(req);
 
   if (!userSnap.exists) {
-    res.status(403).json({ error: "Owner profile not found. Please register first." });
+    if (!phoneNumber) {
+      res.status(403).json({ error: "Owner profile not found. Please register first." });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    await userRef.set(buildOwnerProfile(phoneNumber, now), { merge: true });
+    next();
     return;
   }
 
@@ -57,11 +89,22 @@ const ensureOwnerProfile = async (req: AuthRequest, res: express.Response, next:
     return;
   }
 
+  const updates: Record<string, unknown> = {};
+  if (!userData.phoneNumber || userData.phoneNumber === "Unknown") {
+    updates.phoneNumber = phoneNumber || userData.phoneNumber || "";
+  }
   if (!userData.role) {
-    await userRef.update({ role: "owner", updatedAt: new Date().toISOString() });
-  } else if (!["owner", "admin"].includes(userData.role)) {
+    updates.role = "owner";
+  }
+
+  const effectiveRole = (updates.role as string | undefined) || userData.role;
+  if (!["owner", "admin"].includes(effectiveRole)) {
     res.status(403).json({ error: "Owner role required." });
     return;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await userRef.update({ ...updates, updatedAt: new Date().toISOString() });
   }
 
   next();
@@ -76,7 +119,7 @@ const getOwnedVehicleIds = async (uid: string) => {
 app.post("/register", async (req: AuthRequest, res) => {
   try {
     const uid = req.user!.uid;
-    const phoneNumber = req.user!.phone_number;
+    const phoneNumber = getVerifiedPhoneNumber(req);
     if (!phoneNumber) return res.status(400).json({ error: "Verified phone number is required." });
 
     const { error, value } = ownerProfileSchema.validate(req.body);
@@ -91,11 +134,7 @@ app.post("/register", async (req: AuthRequest, res) => {
       address: value.address || existing.data()?.address || "",
       whatsappNumber: value.whatsappNumber || existing.data()?.whatsappNumber || "",
       alternativeNumber: value.alternativeNumber || existing.data()?.alternativeNumber || "",
-      notificationPreferences: value.notificationPreferences || existing.data()?.notificationPreferences || {
-        sms: true,
-        whatsapp: false,
-        push: false
-      },
+      notificationPreferences: value.notificationPreferences || existing.data()?.notificationPreferences || defaultNotificationPreferences,
       role: "owner",
       status: existing.data()?.status || "active",
       createdAt: existing.data()?.createdAt || now,
