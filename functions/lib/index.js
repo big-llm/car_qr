@@ -52,10 +52,11 @@ exports.expireAlerts = functions.pubsub.schedule("every 5 minutes").onRun(async 
     console.log(`Expired ${expired} old alerts`);
 });
 exports.onUserSignup = functions.auth.user().onCreate(async (user) => {
+    if (!user.email)
+        return;
     const now = new Date().toISOString();
-    const phoneNumber = user.phoneNumber || "";
-    await firebase_1.db.collection("users").doc(user.uid).set({
-        phoneNumber,
+    const userData = {
+        email: user.email,
         name: user.displayName || "",
         address: "",
         whatsappNumber: "",
@@ -69,7 +70,11 @@ exports.onUserSignup = functions.auth.user().onCreate(async (user) => {
         status: "active",
         createdAt: now,
         updatedAt: now
-    }, { merge: true });
+    };
+    if (user.phoneNumber) {
+        userData.phoneNumber = user.phoneNumber;
+    }
+    await firebase_1.db.collection("users").doc(user.uid).set(userData, { merge: true });
 });
 exports.onUserDelete = functions.auth.user().onDelete(async (user) => {
     await firebase_1.db.collection("users").doc(user.uid).set({

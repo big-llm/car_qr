@@ -17,6 +17,7 @@ app.use(requireAuth);
 
 const ownerProfileSchema = Joi.object({
   name: Joi.string().allow("").optional(),
+  phoneNumber: Joi.string().pattern(/^\+[1-9]\d{1,14}$/).allow("").optional(),
   address: Joi.string().allow("").optional(),
   whatsappNumber: Joi.string().allow("").optional(),
   alternativeNumber: Joi.string().allow("").optional(),
@@ -52,7 +53,13 @@ const getVerifiedPhoneNumber = (req: AuthRequest): string => {
   return token?.phone_number || token?.firebase?.identities?.phone?.[0] || "";
 };
 
-const buildOwnerProfile = (phoneNumber: string, now: string) => ({
+const getVerifiedEmail = (req: AuthRequest): string => {
+  const token = req.user as any;
+  return token?.email || token?.firebase?.identities?.email?.[0] || "";
+};
+
+const buildOwnerProfile = (email: string, phoneNumber: string, now: string) => ({
+  email,
   phoneNumber,
   name: "",
   address: "",
@@ -70,15 +77,16 @@ const ensureOwnerProfile = async (req: AuthRequest, res: express.Response, next:
   const userRef = db.collection("users").doc(uid);
   const userSnap = await userRef.get();
   const phoneNumber = getVerifiedPhoneNumber(req);
+  const email = getVerifiedEmail(req);
+
+  if (!email) {
+    res.status(403).json({ error: "Owner login requires email and password. OTP is only for scanners." });
+    return;
+  }
 
   if (!userSnap.exists) {
-    if (!phoneNumber) {
-      res.status(403).json({ error: "Owner profile not found. Please register first." });
-      return;
-    }
-
     const now = new Date().toISOString();
-    await userRef.set(buildOwnerProfile(phoneNumber, now), { merge: true });
+    await userRef.set(buildOwnerProfile(email, phoneNumber, now), { merge: true });
     next();
     return;
   }
@@ -90,6 +98,9 @@ const ensureOwnerProfile = async (req: AuthRequest, res: express.Response, next:
   }
 
   const updates: Record<string, unknown> = {};
+  if (!userData.email) {
+    updates.email = email;
+  }
   if (!userData.phoneNumber || userData.phoneNumber === "Unknown") {
     updates.phoneNumber = phoneNumber || userData.phoneNumber || "";
   }
@@ -119,8 +130,8 @@ const getOwnedVehicleIds = async (uid: string) => {
 app.post("/register", async (req: AuthRequest, res) => {
   try {
     const uid = req.user!.uid;
-    const phoneNumber = getVerifiedPhoneNumber(req);
-    if (!phoneNumber) return res.status(400).json({ error: "Verified phone number is required." });
+    const email = getVerifiedEmail(req);
+    if (!email) return res.status(400).json({ error: "Verified email account is required for owner registration." });
 
     const { error, value } = ownerProfileSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
@@ -128,7 +139,11 @@ app.post("/register", async (req: AuthRequest, res) => {
     const userRef = db.collection("users").doc(uid);
     const existing = await userRef.get();
     const now = new Date().toISOString();
+    const phoneNumber = value.phoneNumber || existing.data()?.phoneNumber || getVerifiedPhoneNumber(req);
+    if (!phoneNumber) return res.status(400).json({ error: "Owner alert phone number is required." });
+
     const userData = {
+      email,
       phoneNumber,
       name: value.name || existing.data()?.name || "",
       address: value.address || existing.data()?.address || "",

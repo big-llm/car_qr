@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   Car, Bell, Settings, Send, LayoutDashboard, ShieldAlert,
   CheckCircle2, Phone, LogOut, RefreshCw, Activity, Clock, MessageCircle,
-  Plus, Trash2, Edit3
+  Plus, Trash2, Edit3, Mail, Lock
 } from 'lucide-react';
 import { auth, db } from './lib/firebase';
-import { RecaptchaVerifier, signInWithPhoneNumber, User } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, User } from 'firebase/auth';
 import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import QRCode from 'react-qr-code';
 import { jsPDF } from "jspdf";
@@ -26,12 +26,12 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   // App views
   const [activeTab, setActiveTab] = useState<'dashboard' | 'vehicles' | 'alerts' | 'profile'>('dashboard');
 
-  // OTP State
+  // Owner email/password auth
   const [authMode, setAuthMode] = useState<'login' | 'register'>(initialMode);
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [showOtpInput, setShowOtpInput] = useState(false);
-  const [confirmationResult, setConfirmationResult] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirmPassword, setAuthConfirmPassword] = useState('');
+  const [registerPhone, setRegisterPhone] = useState('');
   const [authStatus, setAuthStatus] = useState('');
   const [registerName, setRegisterName] = useState('');
   const [registerAddress, setRegisterAddress] = useState('');
@@ -45,6 +45,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   // Profile Edit State
   const [editingProfile, setEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editWhatsapp, setEditWhatsapp] = useState('');
   const [editAltPhone, setEditAltPhone] = useState('');
@@ -65,10 +66,20 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+      if (currentUser && !currentUser.email) {
+        await auth.signOut();
+        setUser(null);
+        setJwt('');
+        setLoadingUser(false);
+        return;
+      }
+
       setUser(currentUser);
       if (currentUser) {
         const token = await currentUser.getIdToken(true);
         setJwt(token);
+      } else {
+        setJwt('');
       }
       setLoadingUser(false);
     });
@@ -167,50 +178,46 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   };
 
   // === AUTHENTICATION ===
-  const setupRecaptcha = () => {
-    if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'owner-recaptcha', { size: 'invisible' });
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail || !authPassword) return alert('Enter your email and password.');
+    if (authMode === 'register' && authPassword !== authConfirmPassword) {
+      return alert('Passwords do not match.');
     }
-  };
+    if (authMode === 'register' && !registerPhone) {
+      return alert('Enter the owner phone number for alert notifications.');
+    }
+    if (authMode === 'register' && registerPhone && !/^\+[1-9]\d{1,14}$/.test(registerPhone)) {
+      return alert('Enter the owner contact phone in international format, like +919876543210.');
+    }
 
-  const requestOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phone || phone.length < 10) return alert('Enter a valid phone (+1...)');
-    setAuthStatus('Sending SMS...');
+    setAuthStatus(authMode === 'register' ? 'Creating owner account...' : 'Signing in...');
     try {
-      setupRecaptcha();
-      const confirmation = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
-      setConfirmationResult(confirmation);
-      setShowOtpInput(true);
-    } catch (err: any) {
-      alert("Failed to send OTP. Check phone number format.");
-      if(window.recaptchaVerifier) { window.recaptchaVerifier.clear(); window.recaptchaVerifier = null; }
-    } finally { setAuthStatus(''); }
-  };
-
-  const verifyOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otp) return;
-    setAuthStatus('Verifying...');
-    try {
-      if (confirmationResult) {
-        const credential = await confirmationResult.confirm(otp);
-        if (authMode === 'register') {
-          setAuthStatus('Creating profile...');
-          const token = await credential.user.getIdToken(true);
-          await authFetchWithToken('/register', token, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: registerName,
-              address: registerAddress
-            })
-          });
-          window.history.replaceState(null, '', '/owner');
+      if (authMode === 'register') {
+        const credential = await createUserWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+        if (registerName) {
+          await updateProfile(credential.user, { displayName: registerName });
         }
+        const token = await credential.user.getIdToken(true);
+        await authFetchWithToken('/register', token, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: registerName,
+            phoneNumber: registerPhone,
+            address: registerAddress
+          })
+        });
+        setJwt(token);
+        window.history.replaceState(null, '', '/owner');
+      } else {
+        const credential = await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+        const token = await credential.user.getIdToken(true);
+        setJwt(token);
+        window.history.replaceState(null, '', '/owner');
       }
     } catch (err: any) {
-      alert(err.message || 'Invalid OTP code.');
+      alert(err.message || 'Authentication failed.');
     } finally { setAuthStatus(''); }
   };
 
@@ -220,8 +227,8 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     setProfile(null);
     setVehicles([]);
     setAlerts([]);
-    setShowOtpInput(false);
-    setOtp('');
+    setAuthPassword('');
+    setAuthConfirmPassword('');
   };
 
   const resetVehicleForm = () => {
@@ -409,41 +416,44 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
           <Car size={48} style={{ margin: '0 auto' }} />
         </div>
         <h1>{authMode === 'register' ? 'Create Owner Account' : 'Owner Login'}</h1>
-        <p style={{marginBottom: "2rem"}}>{authMode === 'register' ? 'Register with OTP, create your profile, and start managing vehicles.' : 'Securely log in to manage vehicles and respond to active incident alerts.'}</p>
+        <p style={{marginBottom: "2rem"}}>{authMode === 'register' ? 'Register with email and password, then manage vehicles and QR tags.' : 'Use your owner email and password. OTP is only used by public scanners.'}</p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.5rem' }}>
           <button type="button" onClick={() => { setAuthMode('login'); window.history.replaceState(null, '', '/login'); }} className={authMode === 'login' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Login</button>
           <button type="button" onClick={() => { setAuthMode('register'); window.history.replaceState(null, '', '/register'); }} className={authMode === 'register' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Register</button>
         </div>
         
-        <form onSubmit={showOtpInput ? verifyOTP : requestOTP}>
-          {!showOtpInput ? (
-            <>
-              {authMode === 'register' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
-                  <input type="text" placeholder="Full name" value={registerName} onChange={(e) => setRegisterName(e.target.value)} />
-                  <input type="text" placeholder="Address or parking location" value={registerAddress} onChange={(e) => setRegisterAddress(e.target.value)} />
-                </div>
-              )}
-              <div className="input-group">
-                <label>{authMode === 'register' ? 'Phone Number' : 'Registered Phone Number'}</label>
-                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.92)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
-                   <Phone size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
-                   <input type="tel" placeholder="+1 234 567 8900" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'var(--text-primary)' }} autoFocus />
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="input-group fade-in">
-              <label>SMS Verification Code</label>
-              <input type="number" placeholder="Enter 6-Digit Code" value={otp} onChange={(e) => setOtp(e.target.value)} style={{ padding: '1rem', borderRadius: '12px', fontSize: '1.2rem', textAlign: 'center', letterSpacing: '4px' }} autoFocus />
+        <form onSubmit={handleEmailAuth}>
+          {authMode === 'register' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+              <input type="text" placeholder="Full name" value={registerName} onChange={(e) => setRegisterName(e.target.value)} />
+              <input type="tel" placeholder="Owner alert phone (+919876543210)" value={registerPhone} onChange={(e) => setRegisterPhone(e.target.value)} required />
+              <input type="text" placeholder="Address or parking location" value={registerAddress} onChange={(e) => setRegisterAddress(e.target.value)} />
             </div>
           )}
 
-          <div id="owner-recaptcha"></div>
+          <div className="input-group">
+            <label>Email Address</label>
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.92)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem', marginBottom: '0.75rem' }}>
+               <Mail size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
+               <input type="email" placeholder="owner@example.com" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'var(--text-primary)' }} autoFocus />
+            </div>
+            <label>Password</label>
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.92)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
+               <Lock size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
+               <input type="password" placeholder="Password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+
+          {authMode === 'register' && (
+            <div className="input-group fade-in" style={{ marginTop: '0.75rem' }}>
+              <label>Confirm Password</label>
+              <input type="password" placeholder="Confirm password" value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} style={{ padding: '1rem', borderRadius: '12px' }} />
+            </div>
+          )}
           
           <button className="btn-primary" disabled={!!authStatus} type="submit" style={{ marginTop: '1.5rem' }}>
-            {authStatus ? (<><div className="spinner" style={{width: '16px', height: '16px', borderWidth: '2px'}}></div> {authStatus}</>) : (<><Send size={18} /> {showOtpInput ? (authMode === 'register' ? 'Create Account' : 'Secure Login') : 'Send Code'}</>)}
+            {authStatus ? (<><div className="spinner" style={{width: '16px', height: '16px', borderWidth: '2px'}}></div> {authStatus}</>) : (<><Send size={18} /> {authMode === 'register' ? 'Create Account' : 'Secure Login'}</>)}
           </button>
         </form>
       </div>
@@ -668,9 +678,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
              <div style={{ background: 'var(--surface-color)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--surface-border)' }}>
                  {!editingProfile ? (
                    <>
-                    <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem'}}>Authenticated as: <strong style={{color:'var(--text-primary)'}}>{user?.phoneNumber}</strong></p>
+                    <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem'}}>Authenticated as: <strong style={{color:'var(--text-primary)'}}>{user?.email}</strong></p>
                     <div style={{ marginBottom: '1.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                       <p style={{ margin: '0.2rem 0' }}>Name: <strong style={{color:'var(--text-primary)'}}>{profile?.name || 'Not Set'}</strong></p>
+                      <p style={{ margin: '0.2rem 0' }}>Alert Phone: <strong style={{color:'var(--text-primary)'}}>{profile?.phoneNumber || 'Not Set'}</strong></p>
                       <p style={{ margin: '0.2rem 0' }}>Address: <strong style={{color:'var(--text-primary)'}}>{profile?.address || 'Not Set'}</strong></p>
                       <p style={{ margin: '0.2rem 0' }}>WhatsApp: <strong style={{color:'var(--text-primary)'}}>{profile?.whatsappNumber || 'Not Set'}</strong></p>
                     </div>
@@ -678,6 +689,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                     <button onClick={() => {
                         setEditingProfile(true);
                         setEditName(profile?.name || '');
+                        setEditPhone(profile?.phoneNumber || '');
                         setEditAddress(profile?.address || '');
                         setEditWhatsapp(profile?.whatsappNumber || '');
                         setEditAltPhone(profile?.alternativeNumber || '');
@@ -690,6 +702,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                      <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Edit Contact Profile</h3>
                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         <input type="text" placeholder="Full Name" value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
+                        <input type="tel" placeholder="Primary alert phone (+919876543210)" value={editPhone} onChange={e => setEditPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
                         <input type="text" placeholder="WhatsApp Number" value={editWhatsapp} onChange={e => setEditWhatsapp(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
                         <input type="text" placeholder="Alternative Phone" value={editAltPhone} onChange={e => setEditAltPhone(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px' }} />
                         <textarea placeholder="Physical Address" value={editAddress} onChange={e => setEditAddress(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', minHeight: '80px' }} />
@@ -700,11 +713,11 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                             await authFetch('/profile', {
                               method: 'PUT',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ name: editName, address: editAddress, whatsappNumber: editWhatsapp, alternativeNumber: editAltPhone })
+                              body: JSON.stringify({ name: editName, phoneNumber: editPhone, address: editAddress, whatsappNumber: editWhatsapp, alternativeNumber: editAltPhone })
                             });
                             setEditingProfile(false);
-                            loadDashboard();
-                          } catch(e) { alert("Failed to save"); }
+                            loadProfile();
+                          } catch(e: any) { alert(e.message || "Failed to save"); }
                         }} className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Save</button>
                         <button onClick={() => setEditingProfile(false)} className="btn-outline" style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
                      </div>

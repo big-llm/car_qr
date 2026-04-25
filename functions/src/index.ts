@@ -20,10 +20,11 @@ export const expireAlerts = functions.pubsub.schedule("every 5 minutes").onRun(a
 });
 
 export const onUserSignup = functions.auth.user().onCreate(async (user) => {
+  if (!user.email) return;
+
   const now = new Date().toISOString();
-  const phoneNumber = user.phoneNumber || "";
-  await db.collection("users").doc(user.uid).set({
-    phoneNumber,
+  const userData: Record<string, unknown> = {
+    email: user.email,
     name: user.displayName || "",
     address: "",
     whatsappNumber: "",
@@ -37,7 +38,13 @@ export const onUserSignup = functions.auth.user().onCreate(async (user) => {
     status: "active",
     createdAt: now,
     updatedAt: now
-  }, { merge: true });
+  };
+
+  if (user.phoneNumber) {
+    userData.phoneNumber = user.phoneNumber;
+  }
+
+  await db.collection("users").doc(user.uid).set(userData, { merge: true });
 });
 
 export const onUserDelete = functions.auth.user().onDelete(async (user) => {

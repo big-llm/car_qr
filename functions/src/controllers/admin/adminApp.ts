@@ -53,6 +53,7 @@ app.route("/users")
         const query = (q as string).toLowerCase();
         users = users.filter(u => 
           u.name?.toLowerCase().includes(query) || 
+          u.email?.toLowerCase().includes(query) ||
           u.phoneNumber?.includes(query) || 
           u.address?.toLowerCase().includes(query)
         );
@@ -66,6 +67,8 @@ app.route("/users")
   .post(async (req, res) => {
     // Strict schema to create a user internally
     const schema = Joi.object({
+      email: Joi.string().email().required(),
+      password: Joi.string().min(6).required(),
       phoneNumber: Joi.string().pattern(/^\+[1-9]\d{1,14}$/).required(),
       name: Joi.string().allow("").optional(),
       address: Joi.string().allow("").optional(),
@@ -79,19 +82,26 @@ app.route("/users")
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { phoneNumber, name, address, whatsappNumber, alternativeNumber, role } = req.body;
+    const { email, password, phoneNumber, name, address, whatsappNumber, alternativeNumber, role } = req.body;
     try {
-      
-      const userRecord = await auth.createUser({ phoneNumber, displayName: name });
+      const now = new Date().toISOString();
+      const userRecord = await auth.createUser({ email, password, displayName: name });
       const userData = {
+        email,
         phoneNumber,
         name: name || "",
         address: address || "",
         whatsappNumber: whatsappNumber || "",
         alternativeNumber: alternativeNumber || "",
+        notificationPreferences: {
+          sms: true,
+          whatsapp: false,
+          push: false
+        },
         role,
         status: "active",
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now
       };
       await db.collection("users").doc(userRecord.uid).set(userData);
       

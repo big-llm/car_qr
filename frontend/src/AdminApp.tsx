@@ -51,6 +51,8 @@ export default function AdminApp() {
   });
   const [userQuery, setUserQuery] = useState('');
   const [vehicleQuery, setVehicleQuery] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newOwnerPassword, setNewOwnerPassword] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newName, setNewName] = useState('');
   const [newAddress, setNewAddress] = useState('');
@@ -170,6 +172,8 @@ export default function AdminApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          email: newEmail,
+          password: newOwnerPassword,
           phoneNumber: newPhone,
           name: newName,
           address: newAddress,
@@ -177,6 +181,8 @@ export default function AdminApp() {
           alternativeNumber: newAltPhone
         })
       });
+      setNewEmail('');
+      setNewOwnerPassword('');
       setNewPhone('');
       setNewName('');
       setNewAddress('');
@@ -382,14 +388,16 @@ export default function AdminApp() {
             <div className="fade-in stack">
               <div className="toolbar">
                 <div className="search-field">
-                  <input type="text" placeholder="Search by name, phone, or address" value={userQuery} onChange={(e) => setUserQuery(e.target.value)} />
+                  <input type="text" placeholder="Search by name, email, phone, or address" value={userQuery} onChange={(e) => setUserQuery(e.target.value)} />
                 </div>
               </div>
 
               <div className="form-card">
-                <h3>Register New User</h3>
+                <h3>Register New Owner</h3>
                 <form onSubmit={handleCreateUser} className="form-grid">
                   <input type="text" placeholder="Owner name" value={newName} onChange={(e) => setNewName(e.target.value)} required />
+                  <input type="email" placeholder="Owner login email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} required />
+                  <input type="password" placeholder="Temporary password" value={newOwnerPassword} onChange={(e) => setNewOwnerPassword(e.target.value)} minLength={6} required />
                   <input type="tel" placeholder="Primary phone (+1234567890)" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required />
                   <input type="text" placeholder="WhatsApp number" value={newWhatsapp} onChange={(e) => setNewWhatsapp(e.target.value)} />
                   <input type="text" placeholder="Alternative phone" value={newAltPhone} onChange={(e) => setNewAltPhone(e.target.value)} />
@@ -415,6 +423,7 @@ export default function AdminApp() {
                         <tr key={u.id}>
                           <td>
                             <strong>{u.name || '-'}</strong>
+                            {u.email && <div className="subtle" style={{ marginTop: '0.25rem' }}>{u.email}</div>}
                             <div className="subtle" style={{ marginTop: '0.25rem' }}>Joined {new Date(u.createdAt).toLocaleDateString()}</div>
                           </td>
                           <td>
