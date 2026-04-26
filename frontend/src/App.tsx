@@ -3,9 +3,9 @@ import { auth, db } from './lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, User as AuthUser } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { 
-  CarFront, AlertCircle, Phone, Send, CheckCircle2, 
-  ShieldAlert, WifiOff, History, User as UserIcon, 
-  Scan, LogOut, ChevronRight, MapPin, Activity
+  CarFront, AlertCircle, Send, CheckCircle2, 
+  ShieldAlert, History, User as UserIcon, 
+  Scan, LogOut, ChevronRight, Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
@@ -66,9 +66,7 @@ function App() {
   const [activeAlertId, setActiveAlertId] = useState<string | null>(null);
   const [ownerResponse, setOwnerResponse] = useState<string | null>(null);
   const [alertStatus, setAlertStatus] = useState<string | null>(null);
-  const [notificationStatus, setNotificationStatus] = useState<string | null>(null);
   const [sendingStatus, setSendingStatus] = useState('');
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
     // 1. Extract QR token from URL
@@ -104,24 +102,28 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sync data when tabs change
+  // Sync data and check for active alerts on the current vehicle
   useEffect(() => {
     if (user) {
-      if (activeTab === 'history') loadHistory();
       if (activeTab === 'profile') loadScannerProfile();
+      
+      // Always load history to check for active alerts if we're on a vehicle page
+      loadHistory().then(historyData => {
+        if (historyData && vehicle && !activeAlertId) {
+          const activeAlert = historyData.find((a: any) => 
+            a.vehicleId === vehicle.id && 
+            (a.status === 'pending' || a.status === 'responded')
+          );
+          if (activeAlert) {
+            setActiveAlertId(activeAlert.id);
+            setAlertSent(true);
+            setAlertStatus(activeAlert.status);
+            if (activeAlert.ownerResponse) setOwnerResponse(activeAlert.ownerResponse);
+          }
+        }
+      });
     }
-  }, [activeTab, user]);
-
-  useEffect(() => {
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, []);
+  }, [activeTab, user, vehicle]);
 
   // Real-time: Firestore onSnapshot + guaranteed polling in parallel
   useEffect(() => {
@@ -144,7 +146,6 @@ function App() {
         if (!snapshot.exists()) return;
         const data: any = snapshot.data();
         applyUpdate(data.status, data.ownerResponse || null);
-        setNotificationStatus(data.notificationStatus || null);
       },
       () => {} // silently ignore Firestore auth errors — polling covers it
     );
@@ -204,8 +205,10 @@ function App() {
       if (res.ok) {
         const data = await res.json();
         setHistory(data);
+        return data;
       }
     } catch (e) {} finally { setLoadingData(false); }
+    return null;
   };
 
   const fetchVehicleInfo = async (qrToken: string) => {

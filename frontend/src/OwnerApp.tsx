@@ -6,10 +6,11 @@ import {
 } from 'lucide-react';
 import { auth, db, requestFcmToken } from './lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, User as AuthUser } from 'firebase/auth';
-import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import QRCode from 'react-qr-code';
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
+import { motion } from "framer-motion";
 import './App.css';
 
 const API_BASE_URL = '/api/user';
@@ -42,8 +43,11 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [newAlertToast, setNewAlertToast] = useState<any>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
 
-  // Profile Edit State
+  // Authentication State
   const [editingProfile, setEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
@@ -120,6 +124,12 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         if (isVeryRecent) {
            setNewAlertToast(latestAlert);
            if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
+           try {
+             // Play a subtle high-tech notification sound
+             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+             audio.volume = 0.7;
+             audio.play().catch(() => {});
+           } catch(e) {}
         }
       }
     }, (error) => {
@@ -141,8 +151,22 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     }
   };
 
+  const enableNotifications = async () => {
+    const token = await requestFcmToken();
+    if (token) {
+      await handleFcmToken(token);
+      setNotificationPermission('granted');
+      alert('Push notifications enabled successfully!');
+    } else {
+      if (Notification.permission === 'denied') {
+        alert('Push notifications are blocked by your browser. Please allow them in your site settings.');
+      }
+      setNotificationPermission(Notification.permission);
+    }
+  };
+
   useEffect(() => {
-    if (user && jwt) {
+    if (user && jwt && notificationPermission === 'granted') {
       requestFcmToken().then(token => {
         if (token) handleFcmToken(token);
       });
@@ -190,12 +214,6 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const fetchVehicles = async () => {
     setLoadingData(true);
     try { setVehicles(await authFetch('/vehicles')); } catch(e) {}
-    setLoadingData(false);
-  };
-
-  const fetchAlerts = async () => {
-    setLoadingData(true);
-    try { setAlerts(await authFetch('/alerts')); } catch(e) {}
     setLoadingData(false);
   };
 
@@ -544,6 +562,24 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.2rem' }}>Total Alerts</p>
                 </div>
              </div>
+
+             {notificationPermission !== 'granted' && (
+               <motion.div 
+                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                 style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', borderRadius: '16px', padding: '1.25rem', marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}
+               >
+                 <div style={{ background: '#f59e0b', padding: '0.75rem', borderRadius: '12px', color: 'white' }}>
+                   <Bell size={24} />
+                 </div>
+                 <div style={{ flex: 1 }}>
+                   <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#b45309' }}>Enable Live Notifications</h3>
+                   <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#92400e' }}>Get instant push alerts when someone scans your car, even if the app is closed.</p>
+                 </div>
+                 <button onClick={enableNotifications} className="btn-primary" style={{ padding: '0.6rem 1.2rem', whiteSpace: 'nowrap' }}>
+                   Enable Now
+                 </button>
+               </motion.div>
+             )}
 
              <h3 style={{fontSize:'1.1rem', marginBottom: '1rem'}}>Recent Activity</h3>
              {loadingData ? <div className="spinner"></div> : (
