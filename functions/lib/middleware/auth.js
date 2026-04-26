@@ -70,7 +70,16 @@ const requireAuth = async (req, res, next) => {
 };
 exports.requireAuth = requireAuth;
 const jwt = __importStar(require("jsonwebtoken"));
-const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "SUPER_SECRET_ADMIN_KEY_1337";
+const ADMIN_JWT_SECRET = (() => {
+    const secret = process.env.ADMIN_JWT_SECRET;
+    if (!secret) {
+        if (process.env.NODE_ENV === "production") {
+            throw new Error("FATAL: ADMIN_JWT_SECRET environment variable is not set. Server cannot start.");
+        }
+        return "INSECURE_DEV_ONLY_KEY_DO_NOT_USE_IN_PROD";
+    }
+    return secret;
+})();
 // Middleware to strongly verify admin auth (for Admin Panel)
 const requireAdmin = async (req, res, next) => {
     // Allow OPTIONS preflight for CORS freely

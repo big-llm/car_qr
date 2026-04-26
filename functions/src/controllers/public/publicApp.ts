@@ -136,7 +136,7 @@ app.post(
       location: Joi.object({
         lat: Joi.number().required(),
         lng: Joi.number().required()
-      }).optional()
+      }).allow(null).optional()
     });
 
     const { error } = schema.validate(req.body);

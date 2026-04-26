@@ -4,9 +4,9 @@ import {
   CheckCircle2, Phone, LogOut, RefreshCw, Activity, Clock, MessageCircle,
   Plus, Trash2, Edit3, Mail, Lock
 } from 'lucide-react';
-import { auth, db, requestFcmToken } from './lib/firebase';
+import { auth, requestFcmToken } from './lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, User as AuthUser } from 'firebase/auth';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+
 import QRCode from 'react-qr-code';
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -103,40 +103,46 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   useEffect(() => {
     if (!user || !jwt) return;
 
-    // Listen for alerts where ownerId matches current user
-    // We don't use orderBy here to avoid requiring a composite index
-    const alertsQuery = query(
-      collection(db, 'alerts'),
-      where('ownerId', '==', user.uid)
-    );
+    let isPolling = true;
+    let lastFetchedAlertId: string | null = null;
 
-    const unsubscribe = onSnapshot(alertsQuery, (snapshot) => {
-      const allAlerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      // Sort by timestamp descending in memory
-      allAlerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
-      setAlerts(allAlerts);
-      
-      // Handle "New Alert" notification logic
-      const latestAlert = allAlerts[0];
-      if (latestAlert && latestAlert.status === 'pending') {
-        const isVeryRecent = (Date.now() - new Date(latestAlert.timestamp).getTime()) < 10000;
-        if (isVeryRecent) {
-           setNewAlertToast(latestAlert);
-           if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
-           try {
-             // Play a subtle high-tech notification sound
-             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-             audio.volume = 0.7;
-             audio.play().catch(() => {});
-           } catch(e) {}
+    const fetchLiveAlerts = async () => {
+      if (!isPolling) return;
+      try {
+        const allAlerts = await authFetch('/alerts');
+        setAlerts(allAlerts);
+        
+        // Handle "New Alert" notification logic
+        const latestAlert = allAlerts[0];
+        if (latestAlert && latestAlert.status === 'pending') {
+          const isVeryRecent = (Date.now() - new Date(latestAlert.timestamp).getTime()) < 10000;
+          
+          // Only trigger audio/toast if we haven't already processed this specific alert ID
+          if (isVeryRecent && latestAlert.id !== lastFetchedAlertId) {
+             lastFetchedAlertId = latestAlert.id;
+             setNewAlertToast(latestAlert);
+             if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
+             try {
+               // Play a subtle high-tech notification sound
+               const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+               audio.volume = 0.7;
+               audio.play().catch(() => {});
+             } catch(e) {}
+          }
         }
+      } catch (error) {
+        console.error("Alert Polling Error:", error);
       }
-    }, (error) => {
-      console.error("Firestore Listen Error:", error);
-    });
+    };
 
-    return () => unsubscribe();
+    // Fetch immediately on mount, then poll every 4 seconds
+    fetchLiveAlerts();
+    const intervalId = setInterval(fetchLiveAlerts, 4000);
+
+    return () => {
+      isPolling = false;
+      clearInterval(intervalId);
+    };
   }, [user, jwt]);
 
   const handleFcmToken = async (token: string) => {
@@ -500,14 +506,14 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
             <label>Password</label>
             <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.92)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '0 1rem' }}>
                <Lock size={18} color="var(--text-secondary)" style={{marginRight: '0.5rem'}} />
-               <input type="password" placeholder="Password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'var(--text-primary)' }} />
+               <input type="password" autoComplete="current-password" placeholder="Password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} style={{ border: 'none', background: 'transparent', padding: '1rem 0', width: '100%', outline: 'none', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
           {authMode === 'register' && (
             <div className="input-group fade-in" style={{ marginTop: '0.75rem' }}>
               <label>Confirm Password</label>
-              <input type="password" placeholder="Confirm password" value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} style={{ padding: '1rem', borderRadius: '12px' }} />
+              <input type="password" autoComplete="new-password" placeholder="Confirm password" value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} style={{ padding: '1rem', borderRadius: '12px' }} />
             </div>
           )}
           
@@ -857,25 +863,27 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       </main>
 
       {/* Mobile Fixed Bottom Navigation */}
-      <nav className="owner-nav">
-         <button className={activeTab==='dashboard' ? 'is-active' : ''} onClick={()=>setActiveTab('dashboard')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-            <LayoutDashboard size={22}/>
-            <span style={{fontSize: '0.65rem'}}>Home</span>
-         </button>
-         <button className={activeTab==='vehicles' ? 'is-active' : ''} onClick={()=>setActiveTab('vehicles')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-            <Car size={22}/>
-            <span style={{fontSize: '0.65rem'}}>Vehicles</span>
-         </button>
-         <button className={activeTab==='alerts' ? 'is-active' : ''} onClick={()=>setActiveTab('alerts')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', position: 'relative' }}>
-            {unreadCount > 0 && <span style={{position:'absolute', top: '10px', right: '15px', background: 'var(--danger-color)', width: '10px', height: '10px', borderRadius: '50%'}}></span>}
-            <Bell size={22}/>
-            <span style={{fontSize: '0.65rem'}}>Alerts</span>
-         </button>
-         <button className={activeTab==='profile' ? 'is-active' : ''} onClick={()=>setActiveTab('profile')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-            <Settings size={22}/>
-            <span style={{fontSize: '0.65rem'}}>Profile</span>
-         </button>
-      </nav>
+      <div className="owner-nav-container">
+        <nav className="owner-nav">
+           <button className={activeTab==='dashboard' ? 'is-active' : ''} onClick={()=>setActiveTab('dashboard')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+              <LayoutDashboard size={22}/>
+              <span style={{fontSize: '0.65rem'}}>Home</span>
+           </button>
+           <button className={activeTab==='vehicles' ? 'is-active' : ''} onClick={()=>setActiveTab('vehicles')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+              <Car size={22}/>
+              <span style={{fontSize: '0.65rem'}}>Vehicles</span>
+           </button>
+           <button className={activeTab==='alerts' ? 'is-active' : ''} onClick={()=>setActiveTab('alerts')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', position: 'relative' }}>
+              {unreadCount > 0 && <span style={{position:'absolute', top: '10px', right: '15px', background: 'var(--danger-color)', width: '10px', height: '10px', borderRadius: '50%'}}></span>}
+              <Bell size={22}/>
+              <span style={{fontSize: '0.65rem'}}>Alerts</span>
+           </button>
+           <button className={activeTab==='profile' ? 'is-active' : ''} onClick={()=>setActiveTab('profile')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+              <Settings size={22}/>
+              <span style={{fontSize: '0.65rem'}}>Profile</span>
+           </button>
+        </nav>
+      </div>
     </div>
   );
 }

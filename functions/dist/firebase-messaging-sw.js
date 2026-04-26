@@ -5,41 +5,50 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-// These values will be injected at build time or via the env mechanism.
-// For now they are read from the service worker's globalThis scope.
-// The app sets them via a message event when it registers this SW.
-
-let messaging = null;
-
-// Listen for config message from the main app thread
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'FIREBASE_CONFIG') {
-    try {
-      const app = firebase.initializeApp(event.data.config);
-      messaging = firebase.messaging(app);
-
-      // Handle background messages
-      messaging.onBackgroundMessage((payload) => {
-        const { title, body, icon } = payload.notification || {};
-        self.registration.showNotification(title || 'SmartVehicle Alert', {
-          body: body || 'You have a new vehicle alert.',
-          icon: icon || '/favicon.png',
-          badge: '/favicon.png',
-          tag: 'vehicle-alert',
-          renotify: true,
-          requireInteraction: true,
-          data: payload.data || {},
-          actions: [
-            { action: 'open', title: '📱 Open App' },
-            { action: 'dismiss', title: 'Dismiss' }
-          ]
-        });
-      });
-    } catch (e) {
-      // Already initialised — safe to ignore
-    }
-  }
+// Force immediate activation
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
 });
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim());
+});
+
+// Read config from URL parameters
+const params = new URL(location).searchParams;
+const firebaseConfig = {
+  apiKey: params.get('apiKey'),
+  projectId: params.get('projectId'),
+  messagingSenderId: params.get('messagingSenderId'),
+  appId: params.get('appId'),
+};
+
+if (firebaseConfig.apiKey) {
+  try {
+    const app = firebase.initializeApp(firebaseConfig);
+    const messaging = firebase.messaging(app);
+
+    // Handle background messages synchronously
+    messaging.onBackgroundMessage((payload) => {
+      const { title, body, icon } = payload.notification || {};
+      self.registration.showNotification(title || 'SmartVehicle Alert', {
+        body: body || 'You have a new vehicle alert.',
+        icon: icon || '/favicon.png',
+        badge: '/favicon.png',
+        tag: 'vehicle-alert',
+        renotify: true,
+        requireInteraction: true,
+        data: payload.data || {},
+        actions: [
+          { action: 'open', title: '📱 Open App' },
+          { action: 'dismiss', title: 'Dismiss' }
+        ]
+      });
+    });
+  } catch (e) {
+    // Already initialised or missing config
+  }
+}
 
 // Handle notification click — open the owner portal
 self.addEventListener('notificationclick', (event) => {

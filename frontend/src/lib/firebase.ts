@@ -41,17 +41,16 @@ export const requestFcmToken = async (): Promise<string | null> => {
     const messaging = await getMessagingInstance();
     if (!messaging) return null;
 
-    // Register service worker
-    const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-
-    // Pass Firebase config to the service worker
-    if (swReg.active) {
-      swReg.active.postMessage({ type: 'FIREBASE_CONFIG', config: firebaseConfig });
-    } else {
-      navigator.serviceWorker.ready.then((reg) => {
-        reg.active?.postMessage({ type: 'FIREBASE_CONFIG', config: firebaseConfig });
-      });
-    }
+    // Register service worker with config in URL params for synchronous initialization
+    const queryParams = new URLSearchParams({
+      apiKey: firebaseConfig.apiKey,
+      projectId: firebaseConfig.projectId,
+      messagingSenderId: firebaseConfig.messagingSenderId,
+      appId: firebaseConfig.appId,
+    }).toString();
+    
+    const swReg = await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${queryParams}`);
+    await navigator.serviceWorker.ready;
 
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return null;

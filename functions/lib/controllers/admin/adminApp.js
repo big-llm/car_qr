@@ -46,7 +46,18 @@ const qrService_1 = require("../../services/qrService");
 const joi_1 = __importDefault(require("joi"));
 const jwt = __importStar(require("jsonwebtoken"));
 const rateLimit_1 = require("../../middleware/rateLimit");
-const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "SUPER_SECRET_ADMIN_KEY_1337";
+// ── Security guard: reject insecure default in production ──────────────────
+const ADMIN_JWT_SECRET = (() => {
+    const secret = process.env.ADMIN_JWT_SECRET;
+    if (!secret) {
+        if (process.env.NODE_ENV === "production") {
+            throw new Error("FATAL: ADMIN_JWT_SECRET environment variable is not set. Server cannot start.");
+        }
+        console.warn("[WARN] ADMIN_JWT_SECRET is not set. Using insecure dev default. DO NOT use in production.");
+        return "INSECURE_DEV_ONLY_KEY_DO_NOT_USE_IN_PROD";
+    }
+    return secret;
+})();
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)({ origin: true }));
 app.use((0, helmet_1.default)());
@@ -186,6 +197,32 @@ app.get("/scanners", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch scanners" });
     }
 });
+// Unblock a scanner (remove from blocked_numbers + reset scanner status)
+app.put("/scanners/:phoneNumber/unblock", async (req, res) => {
+    const { phoneNumber } = req.params;
+    try {
+        const decodedPhone = decodeURIComponent(phoneNumber);
+        const senderHash = Buffer.from(decodedPhone).toString("base64url");
+        const legacySenderHash = Buffer.from(decodedPhone).toString("base64");
+        // Remove from blocked_numbers (both hash formats for safety)
+        const batch = firebase_1.db.batch();
+        batch.delete(firebase_1.db.collection("blocked_numbers").doc(senderHash));
+        batch.delete(firebase_1.db.collection("blocked_numbers").doc(legacySenderHash));
+        // Reset scanner status to active
+        const scannerRef = firebase_1.db.collection("scanners").doc(decodedPhone);
+        batch.update(scannerRef, {
+            status: "active",
+            banReason: null,
+            unblockedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+        await batch.commit();
+        res.json({ success: true, message: `${decodedPhone} has been unblocked.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // === VEHICLES ===
 app.route("/vehicles")
     .get(async (req, res) => {
@@ -269,14 +306,28 @@ app.delete("/vehicles/:vehicleId", async (req, res) => {
 app.get("/alerts", async (req, res) => {
     try {
         const { status, vehicleId } = req.query;
-        let query = firebase_1.db.collection("alerts").orderBy("timestamp", "desc");
+        let queryRef = firebase_1.db.collection("alerts").orderBy("timestamp", "desc").limit(100);
         if (status)
-            query = query.where("status", "==", status);
+            queryRef = queryRef.where("status", "==", status);
         if (vehicleId)
-            query = query.where("vehicleId", "==", vehicleId);
-        const alertsSnap = await query.get();
+            queryRef = queryRef.where("vehicleId", "==", vehicleId);
+        const alertsSnap = await queryRef.get();
         const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        res.json(alerts);
+        // Batch fetch vehicles and users to avoid N+1 queries
+        const vIds = [...new Set(alerts.map(a => a.vehicleId).filter(Boolean))];
+        const oIds = [...new Set(alerts.map(a => a.ownerId).filter(Boolean))];
+        const [vSnaps, uSnaps] = await Promise.all([
+            vIds.length ? firebase_1.db.collection("vehicles").where("__name__", "in", vIds.slice(0, 10)).get() : Promise.resolve({ docs: [] }),
+            oIds.length ? firebase_1.db.collection("users").where("__name__", "in", oIds.slice(0, 10)).get() : Promise.resolve({ docs: [] })
+        ]);
+        const vehicleMap = new Map(vSnaps.docs.map(d => [d.id, d.data()]));
+        const userMap = new Map(uSnaps.docs.map(d => [d.id, d.data()]));
+        const enriched = alerts.map(alert => ({
+            ...alert,
+            vehicle: vehicleMap.get(alert.vehicleId) || null,
+            owner: userMap.get(alert.ownerId) || null
+        }));
+        res.json(enriched);
     }
     catch (error) {
         res.status(500).json({ error: error.message });

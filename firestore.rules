@@ -44,6 +44,8 @@ service cloud.firestore {
     // Alert rules
     match /alerts/{alertId} {
       // Vehicle owner can read alerts sent to their vehicles
+      allow read: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      // Fallback for old alerts
       allow read: if isAuthenticated() && exists(/databases/$(database)/documents/vehicles/$(resource.data.vehicleId)) 
                     && get(/databases/$(database)/documents/vehicles/$(resource.data.vehicleId)).data.userId == request.auth.uid;
       // Scanner can listen only to alerts they created after OTP verification.
