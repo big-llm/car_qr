@@ -4,10 +4,14 @@ import {
   AlertCircle,
   CarFront,
   Clock,
+  FileCheck2,
+  Gauge,
+  LockKeyhole,
   MessageSquareText,
   PhoneOff,
   ScanQrCode,
   ShieldCheck,
+  Users,
   Zap
 } from 'lucide-react';
 import './LandingPage.css';
@@ -143,6 +147,70 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
+      <section className="audience-section">
+        <div className="section-tag">Built for daily city parking</div>
+        <h2>One platform, two calm experiences</h2>
+        <p className="section-copy">
+          SmartVehicle separates owner identity from scanner access. Owners manage their garage with email and password, while public scanners verify by OTP only when they need to send an alert.
+        </p>
+        <div className="audience-grid">
+          <motion.div className="detail-card" variants={fadeIn} initial="initial" whileInView="animate">
+            <div className="card-icon"><CarFront size={28} /></div>
+            <h3>For owners</h3>
+            <p>Create vehicles, download QR stickers, receive live incident alerts, and send one-tap responses such as on my way, call me, or will take time.</p>
+          </motion.div>
+          <motion.div className="detail-card" variants={fadeIn} initial="initial" whileInView="animate">
+            <div className="card-icon"><ScanQrCode size={28} /></div>
+            <h3>For scanners</h3>
+            <p>Scan the vehicle QR, verify by phone OTP, choose the issue type, and watch for a live owner response without seeing private contact details.</p>
+          </motion.div>
+          <motion.div className="detail-card" variants={fadeIn} initial="initial" whileInView="animate">
+            <div className="card-icon"><Users size={28} /></div>
+            <h3>For communities</h3>
+            <p>Apartment societies, office parking teams, and gated lots get a safer communication layer without exposing residents to unknown callers.</p>
+          </motion.div>
+        </div>
+      </section>
+
+      <section className="workflow-section">
+        <div className="workflow-visual" aria-hidden="true">
+          <div className="signal-card">
+            <span>Live Alert</span>
+            <strong>Blocking vehicle</strong>
+            <p>Owner notified in real time</p>
+          </div>
+          <div className="qr-plate">
+            <ScanQrCode size={96} />
+            <span>SV-QR-4821</span>
+          </div>
+          <div className="response-card">
+            <CheckLine label="Verified scanner" />
+            <CheckLine label="Private relay" />
+            <CheckLine label="Owner response shown" />
+          </div>
+        </div>
+        <div className="workflow-copy">
+          <div className="section-tag">Operational flow</div>
+          <h2>Designed for fast, low-friction response</h2>
+          <div className="timeline-list">
+            <div><strong>1. Scan</strong><span>The QR resolves only safe vehicle details and hides the owner's phone number.</span></div>
+            <div><strong>2. Verify</strong><span>The scanner uses OTP so spam and repeat abuse can be controlled.</span></div>
+            <div><strong>3. Notify</strong><span>The owner dashboard receives an in-app popup and optional push notification.</span></div>
+            <div><strong>4. Respond</strong><span>The scanner sees the owner's answer immediately through the live status panel.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="trust-section">
+        <div className="section-tag">Trust controls</div>
+        <h2>Privacy and abuse prevention are part of the product</h2>
+        <div className="trust-grid">
+          <div className="trust-item"><LockKeyhole size={26} /><h3>Hidden contact data</h3><p>Public scans never reveal owner phone numbers or private profile data.</p></div>
+          <div className="trust-item"><Gauge size={26} /><h3>Rate limiting</h3><p>Scanner activity is limited by account, device, and abuse windows to reduce harassment.</p></div>
+          <div className="trust-item"><FileCheck2 size={26} /><h3>Audit history</h3><p>Owners can review vehicle alert history and response outcomes from their dashboard.</p></div>
+        </div>
+      </section>
+
       <section style={{ padding: '6rem 1rem', background: 'rgba(255,255,255,0.55)' }}>
         <div style={{ maxWidth: '1180px', margin: '0 auto', display: 'flex', alignItems: 'center', gap: '2rem', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 320px' }}>
@@ -165,7 +233,7 @@ const LandingPage: React.FC = () => {
               animate={{ y: [0, 10, 0] }}
               transition={{ repeat: Infinity, duration: 3 }}
             >
-              <div style={{ fontSize: '0.7rem', color: '#999', marginBottom: '1rem' }}>Notification • Just now</div>
+              <div style={{ fontSize: '0.7rem', color: '#999', marginBottom: '1rem' }}>Notification - Just now</div>
               <div style={{ background: '#f7f2eb', padding: '1rem', borderRadius: '12px', borderLeft: '4px solid var(--primary)' }}>
                 <p style={{ fontSize: '0.8rem', textAlign: 'left', margin: 0, fontWeight: 700 }}>Alert: MH 01 AB 1234</p>
                 <p style={{ fontSize: '0.7rem', textAlign: 'left', margin: '5px 0 0' }}>Someone needs you to move your car.</p>
@@ -202,10 +270,17 @@ const LandingPage: React.FC = () => {
           <CarFront size={28} />
           <span>SmartVehicle</span>
         </div>
-        <p style={{ opacity: 0.58 }}>© 2026 Smart Vehicle Contact Platform. All rights reserved.</p>
+        <p style={{ opacity: 0.58 }}>(c) 2026 Smart Vehicle Contact Platform. All rights reserved.</p>
       </footer>
     </div>
   );
 };
+
+const CheckLine = ({ label }: { label: string }) => (
+  <div className="check-line">
+    <ShieldCheck size={16} />
+    <span>{label}</span>
+  </div>
+);
 
 export default LandingPage;

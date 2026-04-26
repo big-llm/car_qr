@@ -337,10 +337,11 @@ app.get("/history", auth_1.requireAuth, async (req, res) => {
     try {
         const alertsSnap = await firebase_1.db.collection("alerts")
             .where("senderUid", "==", uid)
-            .orderBy("timestamp", "desc")
             .limit(50)
             .get();
-        const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const alerts = alertsSnap.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         res.json(alerts);
     }
     catch (error) {

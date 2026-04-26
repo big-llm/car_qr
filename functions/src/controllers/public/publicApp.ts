@@ -366,11 +366,13 @@ app.get("/history", requireAuth, async (req: AuthRequest, res) => {
   try {
     const alertsSnap = await db.collection("alerts")
       .where("senderUid", "==", uid)
-      .orderBy("timestamp", "desc")
       .limit(50)
       .get();
 
-    const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const alerts = alertsSnap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() as any }))
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
     res.json(alerts);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

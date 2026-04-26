@@ -10,13 +10,20 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfi
 import QRCode from 'react-qr-code';
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import './App.css';
 
 const API_BASE_URL = '/api/user';
+const ACTIVE_ALERT_STATUSES = ['pending', 'delivered', 'pending_retry'];
 
 type OwnerAppProps = {
   initialMode?: 'login' | 'register';
+};
+
+type ToastState = {
+  title: string;
+  message: string;
+  tone: 'success' | 'warning' | 'danger';
 };
 
 export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
@@ -43,6 +50,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [newAlertToast, setNewAlertToast] = useState<any>(null);
+  const [appToast, setAppToast] = useState<ToastState | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
@@ -114,7 +122,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         
         // Handle "New Alert" notification logic
         const latestAlert = allAlerts[0];
-        if (latestAlert && latestAlert.status === 'pending') {
+        if (latestAlert && ACTIVE_ALERT_STATUSES.includes(latestAlert.status)) {
           const isVeryRecent = (Date.now() - new Date(latestAlert.timestamp).getTime()) < 10000;
           
           // Only trigger audio/toast if we haven't already processed this specific alert ID
@@ -186,6 +194,14 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     }
   }, [newAlertToast]);
 
+  useEffect(() => {
+    if (!appToast) return;
+    const timer = setTimeout(() => setAppToast(null), 6500);
+    return () => clearTimeout(timer);
+  }, [appToast]);
+
+  const showToast = (toast: ToastState) => setAppToast(toast);
+
   const authFetch = async (endpoint: string, options: any = {}) => {
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
@@ -232,7 +248,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const loadAlertsView = async () => {
     setLoadingData(true);
     try {
-      // Only fetch vehicles (for the filter dropdown) — alerts come from real-time listener
+      // Only fetch vehicles for the filter dropdown; alerts come from polling.
       const vData = await authFetch('/vehicles');
       setVehicles(vData);
     } catch(e) { console.error(e); }
@@ -328,6 +344,11 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       });
       resetVehicleForm();
       fetchVehicles();
+      showToast({
+        title: editingVehicleId ? 'Vehicle updated' : 'Vehicle created',
+        message: editingVehicleId ? 'Your vehicle details were saved.' : 'Your new QR vehicle is ready.',
+        tone: 'success'
+      });
     } catch (err: any) {
       alert(err.message || "Failed to save vehicle");
     }
@@ -338,6 +359,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     try {
       await authFetch(`/vehicles/${vehicleId}`, { method: "DELETE" });
       fetchVehicles();
+      showToast({ title: 'Vehicle deleted', message: 'The vehicle and its QR record were removed.', tone: 'warning' });
     } catch (err: any) {
       alert(err.message || "Failed to delete vehicle");
     }
@@ -351,7 +373,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ responseCode })
       });
-      // Do NOT call fetchAlerts() here — the onSnapshot listener updates alerts state automatically
+      showToast({ title: 'Response sent', message: responseCode.replace(/_/g, ' '), tone: 'success' });
     } catch(e: any) { 
       alert(e.message || "Failed to respond"); 
     }
@@ -379,6 +401,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
      try {
        await authFetch(`/vehicles/${vehicleId}/qr-regenerate`, { method: "PUT" });
        fetchVehicles();
+       showToast({ title: 'QR regenerated', message: 'Print the new sticker before using this vehicle QR again.', tone: 'success' });
      } catch(e) { alert("Failed to regenerate"); }
   };
 
@@ -526,11 +549,33 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   }
 
   // === AUTHENTICATED MOBILE-OPTIMIZED VIEWS ===
-  const activeAlertStatuses = ['pending', 'delivered', 'pending_retry'];
-  const unreadCount = alerts.filter(a => activeAlertStatuses.includes(a.status)).length;
+  const unreadCount = alerts.filter(a => ACTIVE_ALERT_STATUSES.includes(a.status)).length;
 
   return (
     <div className="owner-shell">
+      <AnimatePresence>
+        {appToast && (
+          <motion.div
+            className={`live-toast live-toast-${appToast.tone}`}
+            initial={{ opacity: 0, y: -18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -18, scale: 0.98 }}
+            role="status"
+          >
+            <div className="live-toast-icon">
+              {appToast.tone === 'success' ? <CheckCircle2 size={22} /> : <Bell size={22} />}
+            </div>
+            <div className="live-toast-copy">
+              <strong>{appToast.title}</strong>
+              <span>{appToast.message}</span>
+            </div>
+            <button type="button" className="live-toast-close" onClick={() => setAppToast(null)} aria-label="Dismiss notification">
+              x
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Top Header */}
       <header className="owner-topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
          <h2 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}><ShieldAlert size={20} color="var(--accent-color)"/> SmartVehicle Garage</h2>
@@ -540,14 +585,14 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       {/* Main Tab Content */}
       <main className="owner-main">
          {newAlertToast && (
-           <div className="alert-toast fade-in" style={{ position: 'fixed', top: '20px', left: '20px', right: '20px', zIndex: 1000, background: 'var(--accent-color)', color: 'white', padding: '1rem', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+           <div className="live-toast live-toast-alert fade-in">
               <Bell className="shake" size={24} />
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: 0, fontWeight: 'bold', fontSize: '1rem' }}>New Vehicle Alert!</p>
-                <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.9 }}>{newAlertToast.type.replace('_',' ')} reported</p>
+              <div className="live-toast-copy">
+                <strong>New vehicle alert</strong>
+                <span>{newAlertToast.type.replace(/_/g,' ')} reported</span>
               </div>
-              <button onClick={() => { setActiveTab('alerts'); setNewAlertToast(null); }} style={{ background: 'white', color: 'var(--accent-color)', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>View</button>
-              <button onClick={() => setNewAlertToast(null)} style={{ background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', padding: '0.5rem', cursor: 'pointer' }}>×</button>
+              <button onClick={() => { setActiveTab('alerts'); setNewAlertToast(null); }} className="live-toast-action">View</button>
+              <button onClick={() => setNewAlertToast(null)} className="live-toast-close" aria-label="Dismiss alert">x</button>
            </div>
          )}
 
@@ -706,7 +751,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
              {loadingData ? <div className="spinner"></div> : (
                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                  {alerts.map(a => {
-                    const isNew = activeAlertStatuses.includes(a.status);
+                    const isNew = ACTIVE_ALERT_STATUSES.includes(a.status);
                     const veh = vehicles.find(v => v.id === a.vehicleId);
                     return (
                       <div key={a.id} style={{ background: isNew ? 'rgba(56, 189, 248, 0.05)' : 'var(--surface-color)', border: isNew ? '1px solid var(--accent-color)' : '1px solid var(--surface-border)', padding: '1.25rem', borderRadius: '16px' }}>
@@ -715,7 +760,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                            <span style={{ fontSize: '0.75rem', color: isNew ? 'var(--accent-color)' : 'var(--text-secondary)', fontWeight: 'bold' }}>{a.status.toUpperCase()}</span>
                         </div>
                         
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', textTransform: 'capitalize' }}>❗️ {a.type.replace('_',' ')}</h3>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', textTransform: 'capitalize' }}>Alert: {a.type.replace('_',' ')}</h3>
                         <p style={{ margin: '0.5rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}><Car size={14} style={{display:'inline', verticalAlign:'sub'}}/> {veh ? veh.licensePlate : 'Unknown Vehicle'}</p>
                         
                         {isNew && (
@@ -812,6 +857,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                             });
                             setEditingProfile(false);
                             loadProfile();
+                            showToast({ title: 'Profile saved', message: 'Your owner contact details were updated.', tone: 'success' });
                           } catch(e: any) { alert(e.message || "Failed to save"); }
                         }} className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Save</button>
                         <button onClick={() => setEditingProfile(false)} className="btn-outline" style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
@@ -835,6 +881,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                                body: JSON.stringify({ notificationPreferences: { ...profile?.notificationPreferences, push: e.target.checked } })
                              });
                              loadProfile();
+                             showToast({ title: 'Preferences saved', message: 'Notification settings were updated.', tone: 'success' });
                            } catch {}
                          }}
                        />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { auth, db } from './lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, User as AuthUser } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -19,6 +19,12 @@ type Vehicle = {
   vehicleName: string;
   make: string;
   model: string;
+};
+
+type ToastState = {
+  title: string;
+  message: string;
+  tone: 'success' | 'warning' | 'danger';
 };
 
 const getDeviceId = () => {
@@ -67,6 +73,12 @@ function App() {
   const [ownerResponse, setOwnerResponse] = useState<string | null>(null);
   const [alertStatus, setAlertStatus] = useState<string | null>(null);
   const [sendingStatus, setSendingStatus] = useState('');
+  const [liveToast, setLiveToast] = useState<ToastState | null>(null);
+  const lastStatusRef = useRef<string | null>(null);
+  const lastResponseRef = useRef<string | null>(null);
+
+  const formatResponse = (value: string) =>
+    value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
   useEffect(() => {
     // 1. Extract QR token from URL
@@ -131,15 +143,50 @@ function App() {
 
     const TERMINAL = ['responded', 'resolved', 'expired', 'failed'];
 
-    const applyUpdate = (status: string, ownerResponse: string | null) => {
+    const applyUpdate = (status: string, nextOwnerResponse: string | null) => {
+      const previousStatus = lastStatusRef.current;
+      const previousResponse = lastResponseRef.current;
+
       setAlertStatus(status);
-      if (ownerResponse) setOwnerResponse(ownerResponse);
+      if (nextOwnerResponse) setOwnerResponse(nextOwnerResponse);
+
+      if (previousStatus && (previousStatus !== status || previousResponse !== nextOwnerResponse)) {
+        if (nextOwnerResponse && nextOwnerResponse !== previousResponse) {
+          setLiveToast({
+            title: 'Owner responded',
+            message: formatResponse(nextOwnerResponse),
+            tone: 'success'
+          });
+          if ('vibrate' in navigator) navigator.vibrate([120, 70, 120]);
+        } else if (status === 'expired') {
+          setLiveToast({
+            title: 'Alert expired',
+            message: 'No owner response was received in the active window.',
+            tone: 'warning'
+          });
+        } else if (status === 'failed') {
+          setLiveToast({
+            title: 'Delivery failed',
+            message: 'The alert could not be delivered. Please try another route if urgent.',
+            tone: 'danger'
+          });
+        } else if (status === 'resolved') {
+          setLiveToast({
+            title: 'Alert resolved',
+            message: 'This vehicle alert has been marked resolved.',
+            tone: 'success'
+          });
+        }
+      }
+
+      lastStatusRef.current = status;
+      lastResponseRef.current = nextOwnerResponse;
       if (TERMINAL.includes(status) && token) {
         sessionStorage.removeItem(`alert_${token}`);
       }
     };
 
-    // 1. Firestore onSnapshot — fires instantly when owner responds
+    // 1. Firestore onSnapshot - fires instantly when owner responds
     const unsubFirestore = onSnapshot(
       doc(db, 'alerts', activeAlertId),
       (snapshot) => {
@@ -147,10 +194,10 @@ function App() {
         const data: any = snapshot.data();
         applyUpdate(data.status, data.ownerResponse || null);
       },
-      () => {} // silently ignore Firestore auth errors — polling covers it
+      () => {} // silently ignore Firestore auth errors - polling covers it
     );
 
-    // 2. HTTP polling — guaranteed fallback every 4 seconds, no auth needed
+    // 2. HTTP polling - guaranteed fallback every 4 seconds, no auth needed
     const poll = async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/qr/alert/${activeAlertId}/public-status`);
@@ -169,6 +216,17 @@ function App() {
       clearInterval(pollInterval);
     };
   }, [activeAlertId, token]);
+
+  useEffect(() => {
+    lastStatusRef.current = null;
+    lastResponseRef.current = null;
+  }, [activeAlertId]);
+
+  useEffect(() => {
+    if (!liveToast) return;
+    const timer = setTimeout(() => setLiveToast(null), 7000);
+    return () => clearTimeout(timer);
+  }, [liveToast]);
 
   // --- API Calls ---
 
@@ -333,6 +391,29 @@ function App() {
 
   return (
     <div className="owner-shell">
+      <AnimatePresence>
+        {liveToast && (
+          <motion.div
+            className={`live-toast live-toast-${liveToast.tone}`}
+            initial={{ opacity: 0, y: -18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -18, scale: 0.98 }}
+            role="status"
+          >
+            <div className="live-toast-icon">
+              {liveToast.tone === 'success' ? <CheckCircle2 size={22} /> : <AlertCircle size={22} />}
+            </div>
+            <div className="live-toast-copy">
+              <strong>{liveToast.title}</strong>
+              <span>{liveToast.message}</span>
+            </div>
+            <button type="button" className="live-toast-close" onClick={() => setLiveToast(null)} aria-label="Dismiss notification">
+              x
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header Branding */}
       <header className="owner-topbar">
         <motion.div 
@@ -587,7 +668,7 @@ function App() {
                         </div>
                         <div style={{ flex: 1 }}>
                            <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>{h.type.replace('_',' ')}</p>
-                           <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.6 }}>{new Date(h.timestamp).toLocaleDateString()} • {h.status}</p>
+                           <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.6 }}>{new Date(h.timestamp).toLocaleDateString()} - {h.status}</p>
                         </div>
                         <ChevronRight size={16} opacity={0.3} />
                      </motion.div>
