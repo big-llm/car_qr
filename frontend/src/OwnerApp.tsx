@@ -4,8 +4,8 @@ import {
   CheckCircle2, Phone, LogOut, RefreshCw, Activity, Clock, MessageCircle,
   Plus, Trash2, Edit3, Mail, Lock
 } from 'lucide-react';
-import { auth, db } from './lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, User } from 'firebase/auth';
+import { auth, db, requestFcmToken } from './lib/firebase';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, User as AuthUser } from 'firebase/auth';
 import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import QRCode from 'react-qr-code';
 import { jsPDF } from "jspdf";
@@ -19,7 +19,7 @@ type OwnerAppProps = {
 };
 
 export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [jwt, setJwt] = useState<string>('');
   const [loadingUser, setLoadingUser] = useState(true);
   
@@ -41,6 +41,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+  const [newAlertToast, setNewAlertToast] = useState<any>(null);
 
   // Profile Edit State
   const [editingProfile, setEditingProfile] = useState(false);
@@ -96,26 +97,69 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   }, [jwt, activeTab, user]);
 
   useEffect(() => {
-    if (!user || vehicles.length === 0) return;
+    if (!user || !jwt) return;
 
-    const vehicleIds = vehicles.map(v => v.id).slice(0, 10);
+    // Listen for alerts where ownerId matches current user
+    // We don't use orderBy here to avoid requiring a composite index
     const alertsQuery = query(
       collection(db, 'alerts'),
-      where('vehicleId', 'in', vehicleIds),
-      orderBy('timestamp', 'desc')
+      where('ownerId', '==', user.uid)
     );
 
     const unsubscribe = onSnapshot(alertsQuery, (snapshot) => {
-      setAlerts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, () => {});
+      const allAlerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      // Sort by timestamp descending in memory
+      allAlerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      setAlerts(allAlerts);
+      
+      // Handle "New Alert" notification logic
+      const latestAlert = allAlerts[0];
+      if (latestAlert && latestAlert.status === 'pending') {
+        const isVeryRecent = (Date.now() - new Date(latestAlert.timestamp).getTime()) < 10000;
+        if (isVeryRecent) {
+           setNewAlertToast(latestAlert);
+           if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
+        }
+      }
+    }, (error) => {
+      console.error("Firestore Listen Error:", error);
+    });
 
     return () => unsubscribe();
-  }, [user, vehicles]);
+  }, [user, jwt]);
+
+  const handleFcmToken = async (token: string) => {
+    try {
+      await authFetch('/fcm-token', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+    } catch (e) {
+      console.warn('Failed to sync FCM token:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (user && jwt) {
+      requestFcmToken().then(token => {
+        if (token) handleFcmToken(token);
+      });
+    }
+  }, [user, jwt]);
+
+  useEffect(() => {
+    if (newAlertToast) {
+      const timer = setTimeout(() => setNewAlertToast(null), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [newAlertToast]);
 
   const authFetch = async (endpoint: string, options: any = {}) => {
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
-      headers: { ...options.headers, 'Authorization': `Bearer ${jwt}` }
+      headers: { ...options.headers, 'Authorization': `Bearer ${jwt || (await auth.currentUser?.getIdToken())}` }
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Request failed");
@@ -135,13 +179,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const loadDashboard = async () => {
     setLoadingData(true);
     try {
-      const [vData, aData] = await Promise.all([
-        authFetch('/vehicles'),
-        authFetch('/alerts')
-      ]);
+      const vData = await authFetch('/vehicles');
       setVehicles(vData);
-      setAlerts(aData);
-      setProfile(await authFetch('/profile').catch(()=>null));
+      // Alerts are managed exclusively by the real-time onSnapshot listener
+      setProfile(await authFetch('/profile').catch(() => null));
     } catch(e) { console.error(e); }
     setLoadingData(false);
   };
@@ -167,12 +208,9 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const loadAlertsView = async () => {
     setLoadingData(true);
     try {
-      const [vData, aData] = await Promise.all([
-        authFetch('/vehicles'),
-        authFetch('/alerts')
-      ]);
+      // Only fetch vehicles (for the filter dropdown) — alerts come from real-time listener
+      const vData = await authFetch('/vehicles');
       setVehicles(vData);
-      setAlerts(aData);
     } catch(e) { console.error(e); }
     setLoadingData(false);
   };
@@ -289,8 +327,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ responseCode })
       });
-      fetchAlerts();
-    } catch(e) { alert("Failed to respond"); }
+      // Do NOT call fetchAlerts() here — the onSnapshot listener updates alerts state automatically
+    } catch(e: any) { 
+      alert(e.message || "Failed to respond"); 
+    }
   };
 
   const refreshHistory = async () => {
@@ -355,7 +395,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
 
     // Wait for QR image to load
     const qrImg = document.getElementById(`qr-image-${vehicle.id}`) as HTMLImageElement;
-    qrImg.src = await generateQRDataURL();
+    qrImg.src = await generateQRDataURL(vehicle.id);
 
     try {
       // Use higher scale for print quality
@@ -384,9 +424,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     }
   };
 
-  const generateQRDataURL = (): Promise<string> => {
+  const generateQRDataURL = (vehicleId?: string): Promise<string> => {
     return new Promise((resolve) => {
-      const svg = document.querySelector(`.qr-hidden svg`) as SVGElement;
+      const selector = vehicleId ? `.qr-hidden-${vehicleId} svg` : `.qr-hidden svg`;
+      const svg = document.querySelector(selector) as SVGElement;
       if (!svg) return resolve("");
       const svgData = new XMLSerializer().serializeToString(svg);
       const canvas = document.createElement("canvas");
@@ -474,6 +515,18 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
 
       {/* Main Tab Content */}
       <main className="owner-main">
+         {newAlertToast && (
+           <div className="alert-toast fade-in" style={{ position: 'fixed', top: '20px', left: '20px', right: '20px', zIndex: 1000, background: 'var(--accent-color)', color: 'white', padding: '1rem', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <Bell className="shake" size={24} />
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: 0, fontWeight: 'bold', fontSize: '1rem' }}>New Vehicle Alert!</p>
+                <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.9 }}>{newAlertToast.type.replace('_',' ')} reported</p>
+              </div>
+              <button onClick={() => { setActiveTab('alerts'); setNewAlertToast(null); }} style={{ background: 'white', color: 'var(--accent-color)', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>View</button>
+              <button onClick={() => setNewAlertToast(null)} style={{ background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', padding: '0.5rem', cursor: 'pointer' }}>×</button>
+           </div>
+         )}
+
          {activeTab === 'dashboard' && (
            <div className="fade-in">
              <h1 style={{fontSize: '1.5rem', marginBottom: '1.5rem'}}>Overview</h1>
@@ -568,7 +621,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                                </button>
                            </div>
                            {/* Hidden QR for PDF Generation */}
-                           <div className="qr-hidden" style={{ display: 'none' }}>
+                           <div className={`qr-hidden qr-hidden-${v.id}`} style={{ display: 'none' }}>
                                <QRCode value={scanUrl} size={256} />
                            </div>
                         </div>
@@ -726,20 +779,41 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                 
                 {!editingProfile && (
                   <>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '1rem', marginTop: '1.5rem' }}>Notification Preferences</h3>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
-                      <input type="checkbox" defaultChecked style={{width: '20px', height: '20px'}}/> Direct SMS Alerts
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-                      <input type="checkbox" style={{width: '20px', height: '20px'}}/> WhatsApp Integration (Beta)
-                    </label>
+                     <h3 style={{ fontSize: '1rem', marginBottom: '1rem', marginTop: '1.5rem' }}>Notification Preferences</h3>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                       <input
+                         type="checkbox"
+                         style={{width: '20px', height: '20px'}}
+                         checked={profile?.notificationPreferences?.push !== false}
+                         onChange={async (e) => {
+                           try {
+                             await authFetch('/profile', {
+                               method: 'PUT',
+                               headers: { 'Content-Type': 'application/json' },
+                               body: JSON.stringify({ notificationPreferences: { ...profile?.notificationPreferences, push: e.target.checked } })
+                             });
+                             loadProfile();
+                           } catch {}
+                         }}
+                       />
+                       System Push Notifications
+                     </label>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                       <input
+                         type="checkbox"
+                         style={{width: '20px', height: '20px'}}
+                         checked={true}
+                         disabled
+                       />
+                       Real-time Dashboard Alerts (Always On)
+                     </label>
 
-                    <hr style={{ border: 'none', borderTop: '1px solid var(--surface-border)', margin: '1.5rem 0' }} />
-                    
-                    <button onClick={handleLogout} className="btn-danger" style={{ width: '100%', padding: '1rem' }}>
-                      <LogOut size={18} /> Logout Device
-                    </button>
-                  </>
+                     <hr style={{ border: 'none', borderTop: '1px solid var(--surface-border)', margin: '1.5rem 0' }} />
+                     
+                     <button onClick={handleLogout} className="btn-danger" style={{ width: '100%', padding: '1rem' }}>
+                       <LogOut size={18} /> Logout Device
+                     </button>
+                   </>
                 )}
              </div>
            </div>

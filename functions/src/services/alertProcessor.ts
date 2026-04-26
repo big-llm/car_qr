@@ -5,19 +5,16 @@ const RETRY_DELAY_MS = 2 * 60 * 1000;
 const MAX_RETRY_ATTEMPTS = 3;
 
 const buildNotificationTargets = (userData: any) => {
-  const targets: Array<{ channel: NotificationChannel; phoneNumber: string }> = [];
-  const preferences = userData.notificationPreferences || {};
+  const targets: Array<{ channel: NotificationChannel; token: string }> = [];
 
-  if (preferences.whatsapp !== false && userData.whatsappNumber) {
-    targets.push({ channel: "whatsapp", phoneNumber: userData.whatsappNumber });
+  // Primary: FCM push to device (if the owner has registered a push token)
+  if (userData.fcmToken) {
+    targets.push({ channel: "fcm_push", token: userData.fcmToken });
   }
 
-  if (preferences.sms !== false && userData.phoneNumber) {
-    targets.push({ channel: "sms", phoneNumber: userData.phoneNumber });
-  }
-
-  if (!targets.length && userData.phoneNumber) {
-    targets.push({ channel: "sms", phoneNumber: userData.phoneNumber });
+  // Fallback: in-app Firestore notification (always available)
+  if (!targets.length) {
+    targets.push({ channel: "in_app", token: userData.userId || "" });
   }
 
   return targets;
@@ -26,13 +23,15 @@ const buildNotificationTargets = (userData: any) => {
 const scheduleNotificationRetry = async (
   alertId: string,
   message: string,
-  targets: Array<{ channel: NotificationChannel; phoneNumber: string }>,
-  deliveryLog: any[]
+  targets: Array<{ channel: NotificationChannel; token: string }>,
+  deliveryLog: any[],
+  meta: { userId: string; alertType: string; licensePlate: string; alertId: string }
 ) => {
   await db.collection("notification_jobs").add({
     alertId,
     message,
     targets,
+    meta,
     attempts: 0,
     maxAttempts: MAX_RETRY_ATTEMPTS,
     status: "pending",
@@ -44,14 +43,15 @@ const scheduleNotificationRetry = async (
 };
 
 const attemptTargets = async (
-  targets: Array<{ channel: NotificationChannel; phoneNumber: string }>,
+  targets: Array<{ channel: NotificationChannel; token: string }>,
   message: string,
+  meta: { userId: string; alertType: string; licensePlate: string; alertId: string },
   baseLog: any[] = []
 ) => {
   const deliveryLog = [...baseLog];
 
   for (const target of targets) {
-    const result = await sendNotification(target.phoneNumber, message, target.channel);
+    const result = await sendNotification(target.token, message, target.channel, meta);
     deliveryLog.push({
       timestamp: new Date().toISOString(),
       channel: result.channel,
@@ -79,30 +79,35 @@ export const processNewAlert = async (alertId: string, alertData: any) => {
       return;
     }
     const vehicleData = vehicleDoc.data()!;
+    const ownerId = vehicleData.userId;
 
-    // 2. Fetch User to get phone number
-    const userDoc = await db.collection("users").doc(vehicleData.userId).get();
+    // 2. Fetch User to get FCM token and profile
+    const userDoc = await db.collection("users").doc(ownerId).get();
     if (!userDoc.exists) {
-      console.error(`User ${vehicleData.userId} not found for alert ${alertId}`);
+      console.error(`User ${ownerId} not found for alert ${alertId}`);
       await alertRef.update({ status: "failed", deliveryLog: ["User not found"] });
       return;
     }
     const userData = userDoc.data()!;
     
     if (userData.status === "blocked" || userData.status === "deactivated") {
-        console.warn(`User ${vehicleData.userId} is inactive. Not sending alert.`);
+        console.warn(`User ${ownerId} is inactive. Not sending alert.`);
         await alertRef.update({ status: "failed", deliveryLog: ["User account inactive"] });
         return;
     }
 
-    const ownerPhone = userData.phoneNumber;
-    
-    // 3. Compose Message
-    const message = `Smart Vehicle Contact: You have a new alert (${alertData.type}) regarding your vehicle ${vehicleData.licensePlate}. Sender details are masked for privacy. Please check your app or vehicle.`;
+    // 3. Compose Message (used in logs only; FCM builds its own rich payload)
+    const message = `SmartVehicle: New alert (${alertData.type}) for vehicle ${vehicleData.licensePlate}. Open the app to respond.`;
 
-    // 4. Send Notification with channel fallback
-    const targets = buildNotificationTargets({ ...userData, phoneNumber: ownerPhone });
-    const delivery = await attemptTargets(targets, message, alertData.deliveryLog || []);
+    // 4. Build targets and dispatch
+    const targets = buildNotificationTargets({ ...userData, userId: ownerId });
+    const meta = {
+      userId: ownerId,
+      alertType: alertData.type,
+      licensePlate: vehicleData.licensePlate,
+      alertId
+    };
+    const delivery = await attemptTargets(targets, message, meta, alertData.deliveryLog || []);
 
     // 5. Update Alert Status
     const updateData = {
@@ -116,7 +121,7 @@ export const processNewAlert = async (alertId: string, alertData: any) => {
     await alertRef.update(updateData);
 
     if (!delivery.success) {
-      await scheduleNotificationRetry(alertId, message, targets, delivery.deliveryLog);
+      await scheduleNotificationRetry(alertId, message, targets, delivery.deliveryLog, meta);
     }
 
   } catch (error: any) {
@@ -144,7 +149,8 @@ export const retryPendingNotificationJobs = async () => {
   for (const jobDoc of jobsSnap.docs) {
     const job = jobDoc.data();
     const attempts = (job.attempts || 0) + 1;
-    const delivery = await attemptTargets(job.targets || [], job.message, job.deliveryLog || []);
+    const meta = job.meta || { userId: "", alertType: "emergency", licensePlate: "Unknown", alertId: job.alertId || "" };
+    const delivery = await attemptTargets(job.targets || [], job.message, meta, job.deliveryLog || []);
     const exhausted = attempts >= (job.maxAttempts || MAX_RETRY_ATTEMPTS);
 
     await jobDoc.ref.update({

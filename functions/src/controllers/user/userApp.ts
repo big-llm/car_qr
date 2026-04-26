@@ -121,10 +121,6 @@ const ensureOwnerProfile = async (req: AuthRequest, res: express.Response, next:
   next();
 };
 
-const getOwnedVehicleIds = async (uid: string) => {
-  const vehiclesSnap = await db.collection("vehicles").where("userId", "==", uid).get();
-  return vehiclesSnap.docs.map(doc => doc.id);
-};
 
 // === REGISTRATION ===
 app.post("/register", async (req: AuthRequest, res) => {
@@ -165,7 +161,6 @@ app.post("/register", async (req: AuthRequest, res) => {
 
 app.use(ensureOwnerProfile);
 
-// === PROFILE ===
 app.get("/profile", async (req: AuthRequest, res) => {
   try {
     const uid = req.user!.uid;
@@ -175,6 +170,23 @@ app.get("/profile", async (req: AuthRequest, res) => {
       return res.status(404).json({ error: "User profile not found" });
     }
     res.json({ id: uid, ...doc.data() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/fcm-token", async (req: AuthRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: "Token is required" });
+
+    await db.collection("users").doc(uid).update({
+      fcmToken: token,
+      updatedAt: new Date().toISOString()
+    });
+    
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -302,20 +314,18 @@ app.put("/vehicles/:vehicleId/qr-regenerate", async (req: AuthRequest, res) => {
 app.get("/alerts", async (req: AuthRequest, res) => {
   try {
     const uid = req.user!.uid;
-    // Get user's vehicles first
-    const vehiclesSnap = await db.collection("vehicles").where("userId", "==", uid).get();
-    if (vehiclesSnap.empty) {
-      return res.json([]);
-    }
     
-    const vehicleIds = vehiclesSnap.docs.map(doc => doc.id);
+    // Query by ownerId which is indexed and efficient
+    const alertsSnap = await db.collection("alerts")
+      .where("ownerId", "==", uid)
+      .get();
+      
+    const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
     
-    // Using in-query (max 10 items per batch in firestore 'in' query)
-    // For larger scale, query DB by individual vehicle or store userId on the alert
-    const alertsSnap = await db.collection("alerts").where("vehicleId", "in", vehicleIds.slice(0, 10)).orderBy("timestamp", "desc").get();
-    const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Sort in memory to avoid needing composite index with timestamp
+    alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     
-    res.json(alerts);
+    res.json(alerts.slice(0, 50));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -325,31 +335,28 @@ app.get("/alerts/history", async (req: AuthRequest, res) => {
   try {
     const uid = req.user!.uid;
     const { vehicleId, from, to, status } = req.query;
-    const vehicleIds = await getOwnedVehicleIds(uid);
-    if (vehicleIds.length === 0) return res.json([]);
 
-    const requestedVehicle = typeof vehicleId === "string" ? vehicleId : "";
-    if (requestedVehicle && !vehicleIds.includes(requestedVehicle)) {
-      return res.status(403).json({ error: "Access denied for selected vehicle." });
-    }
+    // Use ownerId for an index-free query
+    const alertsSnap = await db.collection("alerts")
+      .where("ownerId", "==", uid)
+      .get();
 
-    const effectiveVehicleIds = requestedVehicle ? [requestedVehicle] : vehicleIds.slice(0, 10);
     const oneYearAgo = new Date(Date.now() - ONE_YEAR_MS).toISOString();
     const fromDate = typeof from === "string" && from ? new Date(from).toISOString() : oneYearAgo;
     const toDate = typeof to === "string" && to ? new Date(to).toISOString() : new Date().toISOString();
 
-    const alertsSnap = await db.collection("alerts")
-      .where("vehicleId", "in", effectiveVehicleIds)
-      .orderBy("timestamp", "desc")
-      .get();
-
     const alerts = alertsSnap.docs
       .map(doc => ({ id: doc.id, ...doc.data() as any }))
       .filter(alert =>
+        // In-memory filters
         alert.timestamp >= fromDate &&
         alert.timestamp <= toDate &&
-        (!status || alert.status === status)
+        (!status || alert.status === status) &&
+        (!vehicleId || alert.vehicleId === vehicleId)
       );
+
+    // Sort in-memory to avoid index requirement
+    alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     res.json(alerts);
   } catch (error: any) {
@@ -381,14 +388,21 @@ app.put("/alerts/:alertId/respond", async (req: AuthRequest, res) => {
     const alertSnap = await alertRef.get();
     if (!alertSnap.exists) return res.status(404).json({ error: "Alert not found" });
 
-    // Validate ownership before updating status
-    const vehicleId = alertSnap.data()?.vehicleId;
-    const vehicleSnap = await db.collection("vehicles").doc(vehicleId).get();
-    if (!vehicleSnap.exists || vehicleSnap.data()?.userId !== uid) {
-      return res.status(403).json({ error: "Access denied." });
+    const alertData = alertSnap.data()!;
+    
+    // Primary check: Direct ownerId on alert
+    // Fallback: Check vehicle ownership if alert is legacy
+    let isOwner = alertData.ownerId === uid;
+    
+    if (!isOwner && alertData.vehicleId) {
+      const vehicleSnap = await db.collection("vehicles").doc(alertData.vehicleId).get();
+      isOwner = vehicleSnap.exists && vehicleSnap.data()?.userId === uid;
     }
 
-    const alertData = alertSnap.data()!;
+    if (!isOwner) {
+      return res.status(403).json({ error: "Access denied. You do not own this vehicle alert." });
+    }
+
     const now = new Date().toISOString();
     if (alertData.expiresAt && alertData.expiresAt <= now && !["responded", "resolved"].includes(alertData.status)) {
       await alertRef.update({

@@ -9,7 +9,18 @@ import Joi from "joi";
 import * as jwt from "jsonwebtoken";
 import { rateLimitMiddleware } from "../../middleware/rateLimit";
 
-const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "SUPER_SECRET_ADMIN_KEY_1337";
+// ── Security guard: reject insecure default in production ──────────────────
+const ADMIN_JWT_SECRET = (() => {
+  const secret = process.env.ADMIN_JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("FATAL: ADMIN_JWT_SECRET environment variable is not set. Server cannot start.");
+    }
+    console.warn("[WARN] ADMIN_JWT_SECRET is not set. Using insecure dev default. DO NOT use in production.");
+    return "INSECURE_DEV_ONLY_KEY_DO_NOT_USE_IN_PROD";
+  }
+  return secret;
+})();
 
 const app = express();
 
@@ -166,6 +177,36 @@ app.get("/scanners", async (req, res) => {
   }
 });
 
+// Unblock a scanner (remove from blocked_numbers + reset scanner status)
+app.put("/scanners/:phoneNumber/unblock", async (req, res) => {
+  const { phoneNumber } = req.params;
+  try {
+    const decodedPhone = decodeURIComponent(phoneNumber);
+    const senderHash = Buffer.from(decodedPhone).toString("base64url");
+    const legacySenderHash = Buffer.from(decodedPhone).toString("base64");
+
+    // Remove from blocked_numbers (both hash formats for safety)
+    const batch = db.batch();
+    batch.delete(db.collection("blocked_numbers").doc(senderHash));
+    batch.delete(db.collection("blocked_numbers").doc(legacySenderHash));
+
+    // Reset scanner status to active
+    const scannerRef = db.collection("scanners").doc(decodedPhone);
+    batch.update(scannerRef, {
+      status: "active",
+      banReason: null,
+      unblockedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    await batch.commit();
+    res.json({ success: true, message: `${decodedPhone} has been unblocked.` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // === VEHICLES ===
 app.route("/vehicles")
   .get(async (req, res) => {
@@ -258,14 +299,33 @@ app.delete("/vehicles/:vehicleId", async (req, res) => {
 app.get("/alerts", async (req, res) => {
   try {
     const { status, vehicleId } = req.query;
-    let query: FirebaseFirestore.Query = db.collection("alerts").orderBy("timestamp", "desc");
+    let queryRef: FirebaseFirestore.Query = db.collection("alerts").orderBy("timestamp", "desc").limit(100);
     
-    if (status) query = query.where("status", "==", status);
-    if (vehicleId) query = query.where("vehicleId", "==", vehicleId);
+    if (status) queryRef = queryRef.where("status", "==", status);
+    if (vehicleId) queryRef = queryRef.where("vehicleId", "==", vehicleId);
     
-    const alertsSnap = await query.get();
-    const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.json(alerts);
+    const alertsSnap = await queryRef.get();
+    const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+
+    // Batch fetch vehicles and users to avoid N+1 queries
+    const vIds = [...new Set(alerts.map(a => a.vehicleId).filter(Boolean))];
+    const oIds = [...new Set(alerts.map(a => a.ownerId).filter(Boolean))];
+
+    const [vSnaps, uSnaps] = await Promise.all([
+      vIds.length ? db.collection("vehicles").where("__name__", "in", vIds.slice(0, 10)).get() : Promise.resolve({ docs: [] }),
+      oIds.length ? db.collection("users").where("__name__", "in", oIds.slice(0, 10)).get() : Promise.resolve({ docs: [] })
+    ]);
+
+    const vehicleMap = new Map(vSnaps.docs.map(d => [d.id, d.data()]));
+    const userMap = new Map(uSnaps.docs.map(d => [d.id, d.data()]));
+
+    const enriched = alerts.map(alert => ({
+      ...alert,
+      vehicle: vehicleMap.get(alert.vehicleId) || null,
+      owner: userMap.get(alert.ownerId) || null
+    }));
+
+    res.json(enriched);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

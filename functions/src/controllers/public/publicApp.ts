@@ -196,12 +196,14 @@ app.post(
       }
       
       const vehicleId = vehiclesSnap.docs[0].id;
+      const vehicleData = vehiclesSnap.docs[0].data();
       const now = new Date();
       const expiresAt = new Date(now.getTime() + ALERT_TTL_MS).toISOString();
 
       // 3. Create Alert
       const alertData = {
         vehicleId,
+        ownerId: vehicleData.userId, // ADDED for simpler real-time listening
         qrToken: token,
         type,
         senderUid: req.user?.uid,
@@ -267,7 +269,6 @@ app.get("/qr/alert/:alertId/status", requireAuth, async (req: AuthRequest, res: 
     if (!alertSnap.exists) return res.status(404).json({ error: "Alert not found" });
     
     const alertData = alertSnap.data()!;
-    // Secure it so ONLY the exact person who sent it can physically poll the status of this Alert ID
     if (alertData.senderPhone !== senderPhone) {
        return res.status(403).json({ error: "Access denied" });
     }
@@ -290,6 +291,89 @@ app.get("/qr/alert/:alertId/status", requireAuth, async (req: AuthRequest, res: 
     });
   } catch(e) {
     res.status(500).json({ error: "Polling failed" });
+  }
+});
+
+// Public status check — alertId is a cryptographically random token, safe without auth
+app.get("/qr/alert/:alertId/public-status", async (req, res: any) => {
+  const { alertId } = req.params;
+  if (!alertId || alertId.length < 10) return res.status(400).json({ error: "Invalid alert ID" });
+  try {
+    const alertSnap = await db.collection("alerts").doc(alertId).get();
+    if (!alertSnap.exists) return res.status(404).json({ error: "Alert not found" });
+    const alertData = alertSnap.data()!;
+
+    if (alertData.expiresAt && alertData.expiresAt <= new Date().toISOString() && !["responded", "expired", "resolved"].includes(alertData.status)) {
+      await alertSnap.ref.update({ status: "expired", expiredAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      alertData.status = "expired";
+    }
+
+    // Only expose what the scanner needs to know — no personal owner data
+    res.json({
+      status: alertData.status,
+      ownerResponse: alertData.ownerResponse || null,
+      respondedAt: alertData.respondedAt || null,
+      expiresAt: alertData.expiresAt || null
+    });
+  } catch(e) {
+    res.status(500).json({ error: "Status check failed" });
+  }
+});
+
+// === SCANNER PROFILE & HISTORY ===
+
+app.get("/profile", requireAuth, async (req: AuthRequest, res) => {
+  const senderPhone = req.user?.phone_number;
+  if (!senderPhone) return res.status(401).json({ error: "Auth required" });
+
+  try {
+    const scannerDoc = await db.collection("scanners").doc(senderPhone).get();
+    if (!scannerDoc.exists) {
+      return res.json({ phoneNumber: senderPhone, status: 'active', totalScans: 0 });
+    }
+    res.json({ id: scannerDoc.id, ...scannerDoc.data() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/profile", requireAuth, async (req: AuthRequest, res) => {
+  const senderPhone = req.user?.phone_number;
+  if (!senderPhone) return res.status(401).json({ error: "Auth required" });
+
+  const schema = Joi.object({
+    name: Joi.string().max(50).allow("").optional()
+  });
+
+  const { error, value } = schema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  try {
+    await db.collection("scanners").doc(senderPhone).set({
+      ...value,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/history", requireAuth, async (req: AuthRequest, res) => {
+  const uid = req.user?.uid;
+  if (!uid) return res.status(401).json({ error: "Auth required" });
+
+  try {
+    const alertsSnap = await db.collection("alerts")
+      .where("senderUid", "==", uid)
+      .orderBy("timestamp", "desc")
+      .limit(50)
+      .get();
+
+    const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(alerts);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

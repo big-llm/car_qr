@@ -23,7 +23,8 @@ const tabs = [
   { id: 'scanners', label: 'Public Scanners', icon: ShieldCheck },
   { id: 'vehicles', label: 'Vehicles', icon: Car },
   { id: 'qrcodes', label: 'QR Codes', icon: QrIcon },
-  { id: 'alerts', label: 'Alert Monitoring', icon: Bell }
+  { id: 'alerts', label: 'Alert Monitoring', icon: Bell },
+  { id: 'abuse', label: 'Abuse Control', icon: ShieldCheck }
 ] as const;
 
 type TabId = typeof tabs[number]['id'];
@@ -37,6 +38,7 @@ export default function AdminApp() {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [scanners, setScanners] = useState<any[]>([]);
+  const [blockedScanners, setBlockedScanners] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>({
@@ -70,6 +72,7 @@ export default function AdminApp() {
     if (activeTab === 'scanners') fetchScanners();
     if (activeTab === 'vehicles' || activeTab === 'qrcodes') fetchVehicles(vehicleQuery);
     if (activeTab === 'alerts') fetchAlerts();
+    if (activeTab === 'abuse') fetchBlockedScanners();
   }, [token, activeTab, userQuery, vehicleQuery]);
 
   const authFetch = async (url: string, options: any = {}) => {
@@ -140,6 +143,33 @@ export default function AdminApp() {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBlockedScanners = async () => {
+    setLoading(true);
+    try {
+      const all = await authFetch(`${API_BASE_URL}/scanners`);
+      setScanners(all); // keep full list too
+      setBlockedScanners(all.filter((s: any) => s.status === 'blocked'));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const unblockScanner = async (phoneNumber: string) => {
+    if (!window.confirm(`Unblock ${phoneNumber}? They will be able to send alerts again.`)) return;
+    try {
+      // Remove from blocked_numbers via scanner status endpoint (reuse admin scanner API)
+      await authFetch(`${API_BASE_URL}/scanners/${encodeURIComponent(phoneNumber)}/unblock`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      fetchBlockedScanners();
+    } catch (err: any) {
+      alert(err.message || 'Failed to unblock scanner');
     }
   };
 
@@ -578,7 +608,7 @@ export default function AdminApp() {
             <div className="fade-in stack">
               <div className="panel">
                 <h3>Realtime Alert Activity</h3>
-                <p>Monitor sender context, alert type, owner delivery status, and escalation patterns.</p>
+                <p>Monitor scanner context, vehicle identity, and owner delivery status.</p>
               </div>
 
               <div className="table-card">
@@ -586,33 +616,120 @@ export default function AdminApp() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Timestamp</th>
-                        <th>Alert Type</th>
-                        <th>Scanner Context</th>
-                        <th>Sender</th>
-                        <th>Status</th>
+                        <th>Incident Time</th>
+                        <th>Issue & Vehicle</th>
+                        <th>Owner Context</th>
+                        <th>Scanner / Sender</th>
+                        <th>Live Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {alerts.map((a) => (
                         <tr key={a.id}>
                           <td className="subtle">{new Date(a.timestamp).toLocaleString()}</td>
-                          <td><span className="badge badge-neutral">{a.type.replace('_', ' ')}</span></td>
                           <td>
-                            <div className="subtle">IP: {a.metadata?.ip || 'N/A'}</div>
-                            <div className="subtle" style={{ marginTop: '0.2rem' }}>{a.metadata?.userAgent || 'N/A'}</div>
-                            {a.metadata?.location && <div className="subtle" style={{ marginTop: '0.2rem' }}>Loc: {a.metadata.location.lat}, {a.metadata.location.lng}</div>}
+                             <span className="badge badge-neutral" style={{ marginBottom: '0.4rem' }}>{a.type.replace('_', ' ')}</span>
+                             {a.vehicle ? (
+                               <div style={{ fontWeight: 700 }}>{a.vehicle.licensePlate} ({a.vehicle.vehicleName || 'Vehicle'})</div>
+                             ) : (
+                               <div className="subtle">UID: {a.vehicleId?.slice(0, 8)}…</div>
+                             )}
                           </td>
-                          <td style={{ fontWeight: 700 }}>{a.senderPhone}</td>
                           <td>
-                            <span className={`badge ${a.status === 'delivered' ? 'badge-success' : a.status === 'failed' ? 'badge-danger' : 'badge-warning'}`}>{a.status.toUpperCase()}</span>
+                             {a.owner ? (
+                               <>
+                                 <div style={{ fontWeight: 600 }}>{a.owner.name || 'Unnamed Owner'}</div>
+                                 <div className="subtle" style={{ fontSize: '0.75rem' }}>{a.owner.phoneNumber}</div>
+                               </>
+                             ) : (
+                               <div className="subtle">No Owner Data</div>
+                             )}
+                          </td>
+                          <td>
+                             <div style={{ fontWeight: 600 }}>{a.senderPhone}</div>
+                             <div className="subtle" style={{ fontSize: '0.7rem' }}>IP: {a.metadata?.ip || 'N/A'}</div>
+                          </td>
+                          <td>
+                            <span className={`badge ${a.status === 'delivered' || a.status === 'responded' ? 'badge-success' : a.status === 'failed' ? 'badge-danger' : 'badge-warning'}`}>
+                               {a.status.toUpperCase()}
+                            </span>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {!loading && alerts.length === 0 && <div className="empty-state">No alert history yet.</div>}
+                {!loading && alerts.length === 0 && <div className="empty-state">No alert activity recorded.</div>}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'abuse' && (
+            <div className="fade-in stack">
+              <div className="panel" style={{ borderLeft: '4px solid var(--danger-color, #ef4444)' }}>
+                <h3>🚫 Blocked Scanners</h3>
+                <p>Numbers that have been automatically or manually blocked due to abuse, harassment, or excessive activity. You can unblock them here if the ban was in error.</p>
+              </div>
+
+              <div className="table-card">
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Phone Number</th>
+                        <th>Block Reason</th>
+                        <th>Last IP / Device</th>
+                        <th>Blocked At</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {blockedScanners.map((s) => (
+                        <tr key={s.id}>
+                          <td className="mono" style={{ fontWeight: 700 }}>{s.phoneNumber}</td>
+                          <td className="subtle" style={{ maxWidth: '260px', wordBreak: 'break-word' }}>
+                            {s.banReason || 'Manually blocked'}
+                          </td>
+                          <td>
+                            {s.lastIp && <div className="subtle">IP: {s.lastIp}</div>}
+                            {s.lastDeviceId && <div className="subtle" style={{ marginTop: '0.2rem', fontSize: '0.72rem' }}>Dev: {s.lastDeviceId.slice(0, 16)}…</div>}
+                          </td>
+                          <td className="subtle">{s.lastScan ? new Date(s.lastScan).toLocaleString() : '—'}</td>
+                          <td>
+                            <button
+                              onClick={() => unblockScanner(s.phoneNumber)}
+                              className="btn-outline icon-button"
+                              style={{ width: 'auto', paddingInline: '0.9rem', color: 'var(--success-color, #10b981)', borderColor: 'var(--success-color, #10b981)' }}
+                            >
+                              Unblock
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!loading && blockedScanners.length === 0 && (
+                  <div className="empty-state" style={{ color: 'var(--success-color, #10b981)' }}>✅ No blocked scanners. Platform is clean.</div>
+                )}
+              </div>
+
+              <div className="panel">
+                <h3>📊 Abuse Activity Summary</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                  <div className="metric-card">
+                    <div className="metric-label">Total Scanners</div>
+                    <div className="metric-value">{scanners.length}</div>
+                  </div>
+                  <div className="metric-card" style={{ borderColor: 'var(--danger-color, #ef4444)' }}>
+                    <div className="metric-label">Blocked</div>
+                    <div className="metric-value" style={{ color: 'var(--danger-color, #ef4444)' }}>{blockedScanners.length}</div>
+                  </div>
+                  <div className="metric-card">
+                    <div className="metric-label">Clean</div>
+                    <div className="metric-value" style={{ color: 'var(--success-color, #10b981)' }}>{scanners.length - blockedScanners.length}</div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
