@@ -3,3 +3,4 @@ serviceAccountKey.json
 node_modules
 backend/
 dev-server*.log
+minimalist-skill.md

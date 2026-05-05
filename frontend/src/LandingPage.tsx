@@ -2,7 +2,12 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertCircle,
+  ArrowRight,
+  BellRing,
+  Building2,
   CarFront,
+  CheckCircle2,
+  ChevronRight,
   Clock,
   FileCheck2,
   Gauge,
@@ -11,276 +16,498 @@ import {
   PhoneOff,
   ScanQrCode,
   ShieldCheck,
+  Smartphone,
   Users,
   Zap
 } from 'lucide-react';
 import './LandingPage.css';
 
-const LandingPage: React.FC = () => {
-  const fadeIn = {
-    initial: { opacity: 0, y: 20 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.6 }
-  };
+const reveal = {
+  hidden: { opacity: 0, y: 18 },
+  visible: { opacity: 1, y: 0 }
+};
 
+const incidents = [
+  {
+    icon: Clock,
+    title: 'Blocked parking',
+    copy: 'The scanner sends a clear request instead of waiting, shouting, or leaving a public phone number.'
+  },
+  {
+    icon: AlertCircle,
+    title: 'Urgent vehicle issue',
+    copy: 'Open window, lights on, minor scrape, towing risk, or emergency contact needs a fast private path.'
+  },
+  {
+    icon: PhoneOff,
+    title: 'Privacy risk',
+    copy: 'Dashboard phone numbers invite spam. A QR relay keeps owner and scanner details controlled.'
+  }
+];
+
+const flowSteps = [
+  {
+    title: 'Scan the sticker',
+    copy: 'Any phone camera opens a branded contact page with safe vehicle context.'
+  },
+  {
+    title: 'Verify by OTP',
+    copy: 'Scanner verification reduces repeated spam and creates accountability.'
+  },
+  {
+    title: 'Send the alert',
+    copy: 'The owner gets an instant alert with the issue type and optional message.'
+  },
+  {
+    title: 'Show the response',
+    copy: 'The scanner sees live status such as on my way, delayed, or need a call.'
+  }
+];
+
+const ownerControls = [
+  'Add multiple vehicles and assign one QR per vehicle',
+  'Deactivate damaged or suspicious stickers from the dashboard',
+  'Review alert history, issue type, scanner verification, and response time',
+  'Keep phone number hidden throughout public scan sessions'
+];
+
+const audienceCards = [
+  {
+    icon: CarFront,
+    title: 'Owners',
+    copy: 'A calm dashboard for QR activation, vehicle profiles, alerts, quick replies, and sticker status.'
+  },
+  {
+    icon: ScanQrCode,
+    title: 'Scanners',
+    copy: 'A short mobile flow that needs no app install and never exposes the owner phone number.'
+  },
+  {
+    icon: Building2,
+    title: 'Societies and fleets',
+    copy: 'A safer communication layer for apartment parking, office lots, delivery teams, and guarded premises.'
+  }
+];
+
+const trustItems = [
+  {
+    icon: LockKeyhole,
+    title: 'No payment on scan page',
+    copy: 'Public QR pages should ask only for the issue context, not bank or payment details.'
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Branded trust cues',
+    copy: 'A clear HTTPS domain, vehicle hint, QR ID, and support link help scanners know they are in the right place.'
+  },
+  {
+    icon: Gauge,
+    title: 'Abuse throttling',
+    copy: 'Rate limits, OTP checks, and alert logs make the system harder to misuse.'
+  },
+  {
+    icon: FileCheck2,
+    title: 'Audit history',
+    copy: 'Owners can review scans, outcomes, and sticker status after every incident.'
+  }
+];
+
+const plans = [
+  {
+    name: 'Personal',
+    price: '₹199',
+    detail: 'Best for one car or bike owner',
+    points: ['1 smart QR sticker', 'Private alerts', 'Basic scan history']
+  },
+  {
+    name: 'Family',
+    price: '₹399',
+    detail: 'For multi-vehicle households',
+    points: ['3 QR stickers', 'Shared emergency contacts', 'Sticker deactivate controls']
+  },
+  {
+    name: 'Community',
+    price: 'Talk to us',
+    detail: 'For societies, offices, and fleets',
+    points: ['Bulk vehicle onboarding', 'Admin reporting', 'Priority support']
+  }
+];
+
+const faqs = [
+  {
+    question: 'Will the scanner see my phone number?',
+    answer: 'No. The scanner sends a message through the platform, and the owner receives the alert without exposing their phone number.'
+  },
+  {
+    question: 'Does the scanner need an app?',
+    answer: 'No. The flow works from the phone camera and browser, which is important because most scans happen in a hurry on mobile.'
+  },
+  {
+    question: 'What if the QR is abused?',
+    answer: 'OTP verification, rate limits, deactivation controls, and audit logs reduce repeated misuse and make the history reviewable.'
+  },
+  {
+    question: 'Where should the sticker be placed?',
+    answer: 'Use a visible windshield or dashboard position with clear branding, QR ID, and a short safety line so scanners trust the page.'
+  }
+];
+
+const LandingPage: React.FC = () => {
   return (
     <div className="landing-container">
-      <nav className="landing-nav">
-        <div className="nav-logo">
-          <CarFront size={28} />
+      <nav className="landing-nav" aria-label="Main navigation">
+        <a className="nav-logo" href="/" aria-label="SmartVehicle home">
+          <span className="logo-mark"><CarFront size={21} /></span>
           <span>SmartVehicle</span>
-        </div>
+        </a>
+
         <div className="nav-links">
-          <a href="#how-it-works">How it Works</a>
-          <a href="#features">Features</a>
-          <a href="/login">Owner Login</a>
+          <a href="#flow">How it works</a>
+          <a href="#security">Security</a>
+          <a href="#pricing">Pricing</a>
+          <a href="/login">Owner login</a>
         </div>
-        <a href="/register" className="nav-cta">Register Vehicle</a>
+
+        <a href="/register" className="nav-cta">
+          Register vehicle
+          <ArrowRight size={17} />
+        </a>
       </nav>
 
-      <section className="hero-section">
-        <motion.div className="hero-content" initial="initial" animate="animate" variants={fadeIn}>
-          <span className="hero-badge">Privacy-first vehicle contact</span>
-          <h1>Contact any car owner instantly <span style={{ color: 'var(--primary)' }}>without sharing numbers.</span></h1>
-          <p>
-            Solve parking conflicts and emergencies with a secure QR sticker that sends the owner an instant alert while keeping both sides private.
-          </p>
-          <div className="hero-btns">
-            <a href="/register" className="btn-primary">Get Your QR Code</a>
-            <a href="#how-it-works" className="btn-outline">See How it Works</a>
-          </div>
-        </motion.div>
-
-        <motion.div
-          className="hero-image"
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-        >
-          <div className="mockup-container">
-            <div className="mockup-screen">
-              <div className="nav-logo" style={{ marginTop: '0.6rem' }}>
-                <CarFront size={22} />
-                <span style={{ fontSize: '1rem' }}>SmartVehicle</span>
-              </div>
-              <div className="mockup-qr">
-                <ScanQrCode size={88} color="#0d7a52" />
-              </div>
-              <div style={{ padding: '1.6rem', textAlign: 'center' }}>
-                <h3 style={{ marginBottom: '0.45rem' }}>Scan to alert</h3>
-                <p style={{ fontSize: '0.9rem', color: '#6c6257', margin: 0 }}>
-                  Send a secure message to the owner of MH 01 AB 1234 in seconds.
-                </p>
-              </div>
-              <div style={{ width: '82%', height: '42px', background: '#0d7a52', borderRadius: '14px', marginTop: '0.5rem' }} />
-            </div>
-          </div>
-
+      <main>
+        <section className="hero-section">
           <motion.div
-            style={{
-              position: 'absolute',
-              top: '9%',
-              right: '2%',
-              background: 'rgba(255,255,255,0.95)',
-              padding: '0.9rem 1rem',
-              borderRadius: '18px',
-              boxShadow: '0 16px 32px rgba(24,20,14,0.12)',
-              display: 'flex',
-              gap: '0.5rem',
-              alignItems: 'center'
-            }}
-            animate={{ y: [0, -12, 0] }}
-            transition={{ repeat: Infinity, duration: 4 }}
+            className="hero-copy"
+            initial="hidden"
+            animate="visible"
+            variants={reveal}
+            transition={{ duration: 0.6 }}
           >
-            <ShieldCheck color="var(--primary)" />
-            <span style={{ fontWeight: 700, color: '#1f1b16' }}>Privacy protected</span>
-          </motion.div>
-        </motion.div>
-      </section>
-
-      <section id="how-it-works" className="problem-section">
-        <div className="section-tag">The problem</div>
-        <h2>Tired of parking conflicts?</h2>
-        <div className="problem-grid">
-          <motion.div className="problem-card" variants={fadeIn} initial="initial" whileInView="animate">
-            <div className="card-icon"><Clock size={30} /></div>
-            <h3>Wasted time</h3>
-            <p>Waiting around for a blocked driver with no reliable way to reach them.</p>
-          </motion.div>
-          <motion.div className="problem-card" variants={fadeIn} initial="initial" whileInView="animate">
-            <div className="card-icon"><AlertCircle size={30} /></div>
-            <h3>Stressful confrontations</h3>
-            <p>Parking pressure gets personal fast when people cannot communicate clearly.</p>
-          </motion.div>
-          <motion.div className="problem-card" variants={fadeIn} initial="initial" whileInView="animate">
-            <div className="card-icon"><PhoneOff size={30} /></div>
-            <h3>Privacy risks</h3>
-            <p>Leaving your number on the dashboard invites spam, misuse, and data scraping.</p>
-          </motion.div>
-        </div>
-      </section>
-
-      <section className="features-section" id="features">
-        <div className="section-tag" style={{ color: 'var(--accent)' }}>The solution</div>
-        <h2 style={{ color: '#fff' }}>Smart, secure, and simple</h2>
-        <div className="features-grid">
-          <div className="feature-item">
-            <Zap size={40} color="var(--accent)" />
-            <h3>Instant alerts</h3>
-            <p>Owners receive a live notification the moment someone scans the QR sticker.</p>
-          </div>
-          <div className="feature-item">
-            <PhoneOff size={40} color="var(--accent)" />
-            <h3>No app required</h3>
-            <p>Any smartphone can scan and send an alert without exposing anyone's contact details.</p>
-          </div>
-          <div className="feature-item">
-            <ShieldCheck size={40} color="var(--accent)" />
-            <h3>Total privacy</h3>
-            <p>The platform acts as a secure relay so phone numbers never need to be shared.</p>
-          </div>
-          <div className="feature-item">
-            <MessageSquareText size={40} color="var(--accent)" />
-            <h3>Quick responses</h3>
-            <p>Owners can reply with one tap to show they are coming, delayed, or need a call back.</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="audience-section">
-        <div className="section-tag">Built for daily city parking</div>
-        <h2>One platform, two calm experiences</h2>
-        <p className="section-copy">
-          SmartVehicle separates owner identity from scanner access. Owners manage their garage with email and password, while public scanners verify by OTP only when they need to send an alert.
-        </p>
-        <div className="audience-grid">
-          <motion.div className="detail-card" variants={fadeIn} initial="initial" whileInView="animate">
-            <div className="card-icon"><CarFront size={28} /></div>
-            <h3>For owners</h3>
-            <p>Create vehicles, download QR stickers, receive live incident alerts, and send one-tap responses such as on my way, call me, or will take time.</p>
-          </motion.div>
-          <motion.div className="detail-card" variants={fadeIn} initial="initial" whileInView="animate">
-            <div className="card-icon"><ScanQrCode size={28} /></div>
-            <h3>For scanners</h3>
-            <p>Scan the vehicle QR, verify by phone OTP, choose the issue type, and watch for a live owner response without seeing private contact details.</p>
-          </motion.div>
-          <motion.div className="detail-card" variants={fadeIn} initial="initial" whileInView="animate">
-            <div className="card-icon"><Users size={28} /></div>
-            <h3>For communities</h3>
-            <p>Apartment societies, office parking teams, and gated lots get a safer communication layer without exposing residents to unknown callers.</p>
-          </motion.div>
-        </div>
-      </section>
-
-      <section className="workflow-section">
-        <div className="workflow-visual" aria-hidden="true">
-          <div className="signal-card">
-            <span>Live Alert</span>
-            <strong>Blocking vehicle</strong>
-            <p>Owner notified in real time</p>
-          </div>
-          <div className="qr-plate">
-            <ScanQrCode size={96} />
-            <span>SV-QR-4821</span>
-          </div>
-          <div className="response-card">
-            <CheckLine label="Verified scanner" />
-            <CheckLine label="Private relay" />
-            <CheckLine label="Owner response shown" />
-          </div>
-        </div>
-        <div className="workflow-copy">
-          <div className="section-tag">Operational flow</div>
-          <h2>Designed for fast, low-friction response</h2>
-          <div className="timeline-list">
-            <div><strong>1. Scan</strong><span>The QR resolves only safe vehicle details and hides the owner's phone number.</span></div>
-            <div><strong>2. Verify</strong><span>The scanner uses OTP so spam and repeat abuse can be controlled.</span></div>
-            <div><strong>3. Notify</strong><span>The owner dashboard receives an in-app popup and optional push notification.</span></div>
-            <div><strong>4. Respond</strong><span>The scanner sees the owner's answer immediately through the live status panel.</span></div>
-          </div>
-        </div>
-      </section>
-
-      <section className="trust-section">
-        <div className="section-tag">Trust controls</div>
-        <h2>Privacy and abuse prevention are part of the product</h2>
-        <div className="trust-grid">
-          <div className="trust-item"><LockKeyhole size={26} /><h3>Hidden contact data</h3><p>Public scans never reveal owner phone numbers or private profile data.</p></div>
-          <div className="trust-item"><Gauge size={26} /><h3>Rate limiting</h3><p>Scanner activity is limited by account, device, and abuse windows to reduce harassment.</p></div>
-          <div className="trust-item"><FileCheck2 size={26} /><h3>Audit history</h3><p>Owners can review vehicle alert history and response outcomes from their dashboard.</p></div>
-        </div>
-      </section>
-
-      <section style={{ padding: '6rem 1rem', background: 'rgba(255,255,255,0.55)' }}>
-        <div style={{ maxWidth: '1180px', margin: '0 auto', display: 'flex', alignItems: 'center', gap: '2rem', flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 320px' }}>
-            <div className="section-tag">Interactive demo</div>
-            <h2 style={{ textAlign: 'left' }}>See the flow in seconds</h2>
-            <p style={{ textAlign: 'left', marginBottom: '2rem' }}>
-              A simple scan becomes a secure conversation. No app install, no exposed phone numbers, no awkward guesswork.
+            <span className="eyebrow">Privacy-first vehicle contact</span>
+            <h1>A private way for strangers to contact your vehicle.</h1>
+            <p>
+              SmartVehicle turns a QR sticker into a secure alert channel for blocked parking,
+              emergencies, and everyday vehicle issues without publishing phone numbers.
             </p>
 
-            <div style={{ display: 'grid', gap: '1rem' }}>
-              <p style={{ textAlign: 'left', margin: 0 }}><strong>1.</strong> Someone scans the QR sticker on your car.</p>
-              <p style={{ textAlign: 'left', margin: 0 }}><strong>2.</strong> You receive a secure alert right away.</p>
-              <p style={{ textAlign: 'left', margin: 0 }}><strong>3.</strong> You answer with a quick status update.</p>
+            <div className="hero-actions">
+              <a href="/register" className="btn btn-primary">
+                Get your QR sticker
+                <ArrowRight size={18} />
+              </a>
+              <a href="#flow" className="btn btn-secondary">
+                View scan flow
+                <ChevronRight size={18} />
+              </a>
+            </div>
+
+            <div className="hero-proof" aria-label="Product highlights">
+              <div>
+                <strong>&lt; 30 sec</strong>
+                <span>target alert path</span>
+              </div>
+              <div>
+                <strong>0</strong>
+                <span>phone numbers shown</span>
+              </div>
+              <div>
+                <strong>OTP</strong>
+                <span>scanner verification</span>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            className="hero-product"
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.7, delay: 0.1 }}
+            aria-label="Product preview"
+          >
+            <div className="vehicle-panel">
+              <div className="windshield">
+                <div className="sticker-preview">
+                  <span>SMARTVEHICLE</span>
+                  <ScanQrCode size={88} />
+                  <small>Scan to alert owner</small>
+                </div>
+                <div className="plate-chip">MH 01 AB 4821</div>
+              </div>
+              <div className="car-line" />
+            </div>
+
+            <motion.div
+              className="alert-card"
+              animate={{ y: [0, -9, 0] }}
+              transition={{ repeat: Infinity, duration: 4.2, ease: 'easeInOut' }}
+            >
+              <span><BellRing size={15} /> Live alert</span>
+              <strong>Blocking vehicle</strong>
+              <p>Verified scanner is waiting near Gate B.</p>
+            </motion.div>
+
+            <div className="phone-preview">
+              <div className="phone-top">
+                <span>Owner app</span>
+                <small>Just now</small>
+              </div>
+              <div className="message-preview">
+                <MessageSquareText size={18} />
+                <div>
+                  <strong>Parking alert received</strong>
+                  <span>Respond without sharing your number.</span>
+                </div>
+              </div>
+              <div className="reply-stack">
+                <button type="button">On my way</button>
+                <button type="button">Need 5 minutes</button>
+              </div>
+            </div>
+          </motion.div>
+        </section>
+
+        <section className="signal-strip" aria-label="Trust signals">
+          <div><ShieldCheck size={19} /> Phone number hidden</div>
+          <div><Smartphone size={19} /> No app for scanner</div>
+          <div><Zap size={19} /> Live owner alert</div>
+          <div><Users size={19} /> Works for societies and fleets</div>
+        </section>
+
+        <section className="problem-section section-shell">
+          <div className="section-heading split-heading">
+            <div>
+              <span className="eyebrow">Real daily problem</span>
+              <h2>The moment is stressful. The interface should be calm.</h2>
+            </div>
+            <p>
+              Most people scan from a phone, standing beside a vehicle, with limited patience.
+              The page has to explain trust, capture the issue, and send the alert quickly.
+            </p>
+          </div>
+
+          <div className="incident-grid">
+            {incidents.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <motion.article
+                  className="incident-card"
+                  key={item.title}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, margin: '-80px' }}
+                  variants={reveal}
+                  transition={{ duration: 0.5, delay: index * 0.08 }}
+                >
+                  <span className="icon-chip"><Icon size={22} /></span>
+                  <h3>{item.title}</h3>
+                  <p>{item.copy}</p>
+                </motion.article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="flow-section" id="flow">
+          <div className="section-shell flow-layout">
+            <div className="flow-copy">
+              <span className="eyebrow">Mobile scan journey</span>
+              <h2>Four taps from scan to owner response.</h2>
+              <p>
+                The scanner flow must feel official, short, and safe. The owner flow must feel
+                fast enough for parking pressure and controlled enough for privacy.
+              </p>
+            </div>
+
+            <div className="flow-board">
+              {flowSteps.map((step, index) => (
+                <motion.div
+                  className="flow-step"
+                  key={step.title}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, margin: '-70px' }}
+                  variants={reveal}
+                  transition={{ duration: 0.45, delay: index * 0.08 }}
+                >
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <h3>{step.title}</h3>
+                  <p>{step.copy}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="audience-section section-shell">
+          <div className="section-heading">
+            <span className="eyebrow">Product experience</span>
+            <h2>Built for the three people who actually use it.</h2>
+          </div>
+
+          <div className="audience-grid">
+            {audienceCards.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <motion.article
+                  className={`audience-card audience-card-${index + 1}`}
+                  key={item.title}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, margin: '-80px' }}
+                  variants={reveal}
+                  transition={{ duration: 0.48, delay: index * 0.08 }}
+                >
+                  <Icon size={27} />
+                  <h3>{item.title}</h3>
+                  <p>{item.copy}</p>
+                </motion.article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="owner-section section-shell">
+          <div className="owner-dashboard">
+            <div className="dashboard-top">
+              <div>
+                <span>Vehicle dashboard</span>
+                <strong>MH 01 AB 4821</strong>
+              </div>
+              <span className="status-pill">Active QR</span>
+            </div>
+            <div className="dashboard-metric-row">
+              <div><strong>14</strong><span>Alerts</span></div>
+              <div><strong>4.8m</strong><span>Avg response</span></div>
+              <div><strong>2</strong><span>Vehicles</span></div>
+            </div>
+            <div className="dashboard-list">
+              <div><CheckCircle2 size={17} /> Parking issue resolved</div>
+              <div><CheckCircle2 size={17} /> Scanner OTP verified</div>
+              <div><CheckCircle2 size={17} /> Phone number remained hidden</div>
             </div>
           </div>
 
-          <div style={{ flex: '1 1 320px', minHeight: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '28px', background: 'rgba(255,255,255,0.82)', border: '1px solid rgba(56,40,20,0.08)' }}>
-            <motion.div
-              style={{ width: '240px', height: '450px', background: '#fff', borderRadius: '32px', border: '8px solid #2f2c28', padding: '1.5rem', boxShadow: '0 24px 44px rgba(24,20,14,0.12)' }}
-              animate={{ y: [0, 10, 0] }}
-              transition={{ repeat: Infinity, duration: 3 }}
-            >
-              <div style={{ fontSize: '0.7rem', color: '#999', marginBottom: '1rem' }}>Notification - Just now</div>
-              <div style={{ background: '#f7f2eb', padding: '1rem', borderRadius: '12px', borderLeft: '4px solid var(--primary)' }}>
-                <p style={{ fontSize: '0.8rem', textAlign: 'left', margin: 0, fontWeight: 700 }}>Alert: MH 01 AB 1234</p>
-                <p style={{ fontSize: '0.7rem', textAlign: 'left', margin: '5px 0 0' }}>Someone needs you to move your car.</p>
-              </div>
-              <div style={{ marginTop: '1.5rem', display: 'grid', gap: '0.5rem' }}>
-                <div style={{ padding: '0.6rem', background: 'var(--primary)', color: 'white', borderRadius: '10px', fontSize: '0.7rem', textAlign: 'center' }}>On my way!</div>
-                <div style={{ padding: '0.6rem', border: '1px solid #ddd', borderRadius: '10px', fontSize: '0.7rem', textAlign: 'center' }}>Coming in 5 mins</div>
-              </div>
-            </motion.div>
+          <div className="owner-copy">
+            <span className="eyebrow">Owner controls</span>
+            <h2>Enough control for trust, not so much that setup feels heavy.</h2>
+            <div className="control-list">
+              {ownerControls.map((item) => (
+                <div key={item}>
+                  <CheckCircle2 size={19} />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="security-section" id="security">
+          <div className="section-shell security-layout">
+            <div className="security-copy">
+              <span className="eyebrow">QR trust and safety</span>
+              <h2>QR products need visible proof that the scan is safe.</h2>
+              <p>
+                Parking-related QR scams are a known user fear. Your public scan page should
+                feel verified, branded, and narrowly focused on vehicle contact.
+              </p>
+            </div>
+
+            <div className="trust-grid">
+              {trustItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <article className="trust-item" key={item.title}>
+                    <Icon size={23} />
+                    <h3>{item.title}</h3>
+                    <p>{item.copy}</p>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className="pricing-section section-shell" id="pricing">
+          <div className="section-heading split-heading">
+            <div>
+              <span className="eyebrow">Simple business model</span>
+              <h2>Plans should be easy to compare on a phone.</h2>
+            </div>
+            <p>
+              For this kind of product, fewer plans work better. Users are buying peace of mind,
+              not reading a long SaaS pricing table in a parking lot.
+            </p>
+          </div>
+
+          <div className="plan-grid">
+            {plans.map((plan, index) => (
+              <article className={`plan-card ${index === 1 ? 'featured-plan' : ''}`} key={plan.name}>
+                {index === 1 && <span className="plan-badge">Popular</span>}
+                <h3>{plan.name}</h3>
+                <strong>{plan.price}</strong>
+                <p>{plan.detail}</p>
+                <div className="plan-points">
+                  {plan.points.map((point) => (
+                    <span key={point}><CheckCircle2 size={16} /> {point}</span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="faq-section section-shell">
+          <div className="section-heading">
+            <span className="eyebrow">Buyer questions</span>
+            <h2>Answer the concerns before checkout.</h2>
+          </div>
+          <div className="faq-list">
+            {faqs.map((item) => (
+              <details key={item.question}>
+                <summary>{item.question}</summary>
+                <p>{item.answer}</p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        <section className="final-cta">
+          <div className="section-shell cta-panel">
+            <div>
+              <span className="eyebrow">Start with one sticker</span>
+              <h2>Make your vehicle reachable without making your number public.</h2>
+            </div>
+            <a href="/register" className="btn btn-primary cta-button">
+              Register vehicle
+              <ArrowRight size={18} />
+            </a>
+          </div>
+        </section>
+      </main>
+
+      <footer className="landing-footer">
+        <div className="section-shell footer-layout">
+          <a className="nav-logo footer-logo" href="/">
+            <span className="logo-mark"><CarFront size={21} /></span>
+            <span>SmartVehicle</span>
+          </a>
+          <p>Private vehicle contact platform for QR stickers, parking alerts, and verified scanner messages.</p>
+          <div>
+            <a href="#flow">How it works</a>
+            <a href="#security">Security</a>
+            <a href="/login">Owner login</a>
           </div>
         </div>
-      </section>
-
-      <section style={{ padding: '3.5rem 1rem', borderTop: '1px solid rgba(56,40,20,0.08)', borderBottom: '1px solid rgba(56,40,20,0.08)', background: 'rgba(255,251,247,0.7)' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', flexWrap: 'wrap', maxWidth: '1180px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShieldCheck size={22} /> <span>Verified OTP security</span></div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Zap size={22} /> <span>Realtime alerts</span></div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><PhoneOff size={22} /> <span>Privacy-first contact</span></div>
-        </div>
-      </section>
-
-      <section className="final-cta">
-        <motion.div className="cta-box" whileInView={{ scale: [0.97, 1] }} transition={{ duration: 0.5 }}>
-          <h2>Ready to secure your vehicle?</h2>
-          <p style={{ marginBottom: '2rem', fontSize: '1.05rem', opacity: 0.82 }}>
-            Join owners who want a faster, calmer, more private way to handle parking issues.
-          </p>
-          <a href="/register" className="btn-primary" style={{ background: 'white', color: 'var(--dark)' }}>Get Your QR Sticker Now</a>
-        </motion.div>
-      </section>
-
-      <footer style={{ padding: '3rem 1rem 4rem', background: '#181510', color: 'white', textAlign: 'center' }}>
-        <div className="nav-logo" style={{ justifyContent: 'center', marginBottom: '1rem' }}>
-          <CarFront size={28} />
-          <span>SmartVehicle</span>
-        </div>
-        <p style={{ opacity: 0.58 }}>(c) 2026 Smart Vehicle Contact Platform. All rights reserved.</p>
       </footer>
+
+      <div className="mobile-action-bar">
+        <a href="/register" className="btn btn-primary">
+          Register vehicle
+          <ArrowRight size={17} />
+        </a>
+      </div>
     </div>
   );
 };
-
-const CheckLine = ({ label }: { label: string }) => (
-  <div className="check-line">
-    <ShieldCheck size={16} />
-    <span>{label}</span>
-  </div>
-);
 
 export default LandingPage;
