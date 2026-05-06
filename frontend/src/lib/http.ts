@@ -2,6 +2,22 @@ export type ApiRequestOptions = RequestInit & {
   headers?: HeadersInit;
 };
 
+const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+
+export function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (!rawApiBaseUrl) {
+    return normalizedPath;
+  }
+
+  if (rawApiBaseUrl.endsWith('/api') && normalizedPath.startsWith('/api/')) {
+    return `${rawApiBaseUrl}${normalizedPath.slice('/api'.length)}`;
+  }
+
+  return `${rawApiBaseUrl}${normalizedPath}`;
+}
+
 export async function parseApiResponse<T = unknown>(response: Response): Promise<T> {
   const rawText = await response.text();
   const contentType = response.headers.get('content-type') || '';

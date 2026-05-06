@@ -7,7 +7,9 @@
     "build:backend": "npm run build --prefix functions",
     "build": "npm run build:frontend && npm run build:backend",
     "start": "npm start --prefix functions",
-    "dev": "npm run dev --prefix functions"
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "npm run dev --prefix functions",
+    "dev:web": "npm run dev --prefix frontend -- --host 127.0.0.1"
   },
   "engines": {
     "node": "24.x"

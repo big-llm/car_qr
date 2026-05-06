@@ -9,10 +9,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
-import { parseApiResponse } from './lib/http';
+import { apiUrl, parseApiResponse } from './lib/http';
 
 // Using relative routing through Express
-const API_BASE_URL = '/api/scanner';
+const API_BASE_URL = apiUrl('/api/scanner');
 
 type Vehicle = {
   id: string;

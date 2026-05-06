@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Bell,
   Car,
+  CheckCircle2,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -14,9 +15,9 @@ import {
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import './App.css';
-import { ApiRequestOptions, parseApiResponse } from './lib/http';
+import { ApiRequestOptions, apiUrl, parseApiResponse } from './lib/http';
 
-const API_BASE_URL = '/api/admin';
+const API_BASE_URL = apiUrl('/api/admin');
 
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -29,12 +30,20 @@ const tabs = [
 ] as const;
 
 type TabId = typeof tabs[number]['id'];
+type NoticeTone = 'success' | 'warning' | 'danger';
+type NoticeState = {
+  tone: NoticeTone;
+  message: string;
+};
 
 export default function AdminApp() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('admin_token'));
   const [userid, setUserid] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [actionBusy, setActionBusy] = useState('');
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
@@ -76,6 +85,15 @@ export default function AdminApp() {
     if (activeTab === 'abuse') fetchBlockedScanners();
   }, [token, activeTab, userQuery, vehicleQuery]);
 
+  const showNotice = (message: string, tone: NoticeTone = 'success') => {
+    setNotice({ message, tone });
+  };
+
+  const reportLoadError = (message: string, error: unknown) => {
+    console.error(error);
+    showNotice(message, 'danger');
+  };
+
   const authFetch = async (url: string, options: ApiRequestOptions = {}): Promise<any> => {
     const res = await fetch(url, {
       ...options,
@@ -91,6 +109,7 @@ export default function AdminApp() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoginBusy(true);
     try {
       const res = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
@@ -101,8 +120,11 @@ export default function AdminApp() {
       if (!data.token) throw new Error('Login response did not include an admin token.');
       setToken(data.token);
       localStorage.setItem('admin_token', data.token);
+      setPassword('');
     } catch (err: any) {
       setError(err.message || 'Login failed');
+    } finally {
+      setLoginBusy(false);
     }
   };
 
@@ -113,13 +135,14 @@ export default function AdminApp() {
     setScanners([]);
     setVehicles([]);
     setAlerts([]);
+    setNotice(null);
   };
 
   const fetchMetrics = async () => {
     try {
       setMetrics(await authFetch(`${API_BASE_URL}/dashboard-metrics`));
     } catch (e) {
-      console.error(e);
+      reportLoadError('Could not load dashboard metrics.', e);
     }
   };
 
@@ -128,7 +151,7 @@ export default function AdminApp() {
     try {
       setUsers(await authFetch(`${API_BASE_URL}/users?q=${encodeURIComponent(q)}`));
     } catch (e) {
-      console.error(e);
+      reportLoadError('Could not load vehicle owners.', e);
     } finally {
       setLoading(false);
     }
@@ -139,7 +162,7 @@ export default function AdminApp() {
     try {
       setScanners(await authFetch(`${API_BASE_URL}/scanners`));
     } catch (e) {
-      console.error(e);
+      reportLoadError('Could not load public scanners.', e);
     } finally {
       setLoading(false);
     }
@@ -152,7 +175,7 @@ export default function AdminApp() {
       setScanners(all); // keep full list too
       setBlockedScanners(all.filter((s: any) => s.status === 'blocked'));
     } catch (e) {
-      console.error(e);
+      reportLoadError('Could not load abuse control data.', e);
     } finally {
       setLoading(false);
     }
@@ -160,15 +183,19 @@ export default function AdminApp() {
 
   const unblockScanner = async (phoneNumber: string) => {
     if (!window.confirm(`Unblock ${phoneNumber}? They will be able to send alerts again.`)) return;
+    setActionBusy(`Unblocking ${phoneNumber}...`);
     try {
       // Remove from blocked_numbers via scanner status endpoint (reuse admin scanner API)
       await authFetch(`${API_BASE_URL}/scanners/${encodeURIComponent(phoneNumber)}/unblock`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' }
       });
+      showNotice(`${phoneNumber} can send alerts again.`);
       fetchBlockedScanners();
     } catch (err: any) {
-      alert(err.message || 'Failed to unblock scanner');
+      showNotice(err.message || 'Failed to unblock scanner.', 'danger');
+    } finally {
+      setActionBusy('');
     }
   };
 
@@ -177,7 +204,7 @@ export default function AdminApp() {
     try {
       setVehicles(await authFetch(`${API_BASE_URL}/vehicles?q=${encodeURIComponent(q)}`));
     } catch (e) {
-      console.error(e);
+      reportLoadError('Could not load vehicles.', e);
     } finally {
       setLoading(false);
     }
@@ -188,7 +215,7 @@ export default function AdminApp() {
     try {
       setAlerts(await authFetch(`${API_BASE_URL}/alerts`));
     } catch (e) {
-      console.error(e);
+      reportLoadError('Could not load alert monitoring.', e);
     } finally {
       setLoading(false);
     }
@@ -196,6 +223,7 @@ export default function AdminApp() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    setActionBusy('Creating owner account...');
     try {
       await authFetch(`${API_BASE_URL}/users`, {
         method: 'POST',
@@ -217,28 +245,36 @@ export default function AdminApp() {
       setNewAddress('');
       setNewWhatsapp('');
       setNewAltPhone('');
+      showNotice('Owner account created successfully.');
       fetchUsers();
     } catch (err: any) {
-      alert(err.message);
+      showNotice(err.message || 'Failed to create owner.', 'danger');
+    } finally {
+      setActionBusy('');
     }
   };
 
   const toggleUserStatus = async (userId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'active' ? 'blocked' : 'active';
+    setActionBusy(`${nextStatus === 'active' ? 'Unblocking' : 'Blocking'} owner...`);
     try {
       await authFetch(`${API_BASE_URL}/users/${userId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus })
       });
+      showNotice(`Owner status changed to ${nextStatus}.`);
       fetchUsers();
     } catch (err: any) {
-      alert(err.message);
+      showNotice(err.message || 'Failed to update owner status.', 'danger');
+    } finally {
+      setActionBusy('');
     }
   };
 
   const handleCreateVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
+    setActionBusy('Registering vehicle...');
     try {
       await authFetch(`${API_BASE_URL}/vehicles`, {
         method: 'POST',
@@ -255,29 +291,40 @@ export default function AdminApp() {
       setNewVehPlate('');
       setNewVehMake('');
       setNewVehName('');
+      showNotice('Vehicle registered and assigned successfully.');
       fetchVehicles();
     } catch (err: any) {
-      alert(err.message);
+      showNotice(err.message || 'Failed to register vehicle.', 'danger');
+    } finally {
+      setActionBusy('');
     }
   };
 
   const deleteVehicle = async (vehId: string) => {
     if (!window.confirm('Delete this vehicle?')) return;
+    setActionBusy('Deleting vehicle...');
     try {
       await authFetch(`${API_BASE_URL}/vehicles/${vehId}`, { method: 'DELETE' });
+      showNotice('Vehicle removed successfully.', 'warning');
       fetchVehicles();
     } catch (err: any) {
-      alert(err.message);
+      showNotice(err.message || 'Failed to delete vehicle.', 'danger');
+    } finally {
+      setActionBusy('');
     }
   };
 
   const regenerateQR = async (vehId: string) => {
     if (!window.confirm('Invalidate the old QR code and generate a new one?')) return;
+    setActionBusy('Regenerating QR...');
     try {
       await authFetch(`${API_BASE_URL}/vehicles/${vehId}/qr-regenerate`, { method: 'PUT' });
+      showNotice('QR regenerated. Print a fresh sticker before using this vehicle QR again.');
       fetchVehicles();
     } catch (err: any) {
-      alert(err.message);
+      showNotice(err.message || 'Failed to regenerate QR.', 'danger');
+    } finally {
+      setActionBusy('');
     }
   };
 
@@ -300,7 +347,9 @@ export default function AdminApp() {
               <label>Secure Password</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             </div>
-            <button className="btn-primary" type="submit"><LogIn size={18} /> Enter System</button>
+            <button className="btn-primary" type="submit" disabled={loginBusy}>
+              {loginBusy ? <><div className="spinner spinner-inline"></div> Checking access...</> : <><LogIn size={18} /> Enter System</>}
+            </button>
           </form>
         </div>
       </div>
@@ -349,9 +398,22 @@ export default function AdminApp() {
             <h1>{activeTabLabel}</h1>
             <p>Readable, responsive controls for the whole platform.</p>
           </div>
+          {loading && <span className="status-badge">Refreshing</span>}
         </div>
 
         <div className="admin-content">
+          {notice && (
+            <div className={`notice notice-${notice.tone}`}>
+              {notice.tone === 'success' ? <CheckCircle2 size={17} /> : <ShieldCheck size={17} />}
+              {notice.message}
+            </div>
+          )}
+          {actionBusy && (
+            <div className="notice notice-warning">
+              <div className="spinner spinner-inline"></div>
+              {actionBusy}
+            </div>
+          )}
           {activeTab === 'dashboard' && (
             <>
               <div className="metric-grid fade-in">
@@ -431,7 +493,7 @@ export default function AdminApp() {
                   <input type="text" placeholder="WhatsApp number" value={newWhatsapp} onChange={(e) => setNewWhatsapp(e.target.value)} />
                   <input type="text" placeholder="Alternative phone" value={newAltPhone} onChange={(e) => setNewAltPhone(e.target.value)} />
                   <input className="span-2" type="text" placeholder="Address" value={newAddress} onChange={(e) => setNewAddress(e.target.value)} />
-                  <button className="btn-primary span-2" type="submit"><Plus size={16} /> Add User</button>
+                  <button className="btn-primary span-2" type="submit" disabled={!!actionBusy}><Plus size={16} /> Add User</button>
                 </form>
               </div>
 
@@ -465,7 +527,7 @@ export default function AdminApp() {
                             <span className={`badge ${u.status === 'active' ? 'badge-success' : 'badge-danger'}`}>{u.status}</span>
                           </td>
                           <td>
-                            <button onClick={() => toggleUserStatus(u.id, u.status)} className="btn-outline icon-button" style={{ width: 'auto', paddingInline: '0.9rem' }}>
+                            <button onClick={() => toggleUserStatus(u.id, u.status)} disabled={!!actionBusy} className="btn-outline icon-button" style={{ width: 'auto', paddingInline: '0.9rem' }}>
                               {u.status === 'active' ? 'Block' : 'Unblock'}
                             </button>
                           </td>
@@ -532,7 +594,7 @@ export default function AdminApp() {
                   <input type="text" placeholder="Vehicle name" value={newVehName} onChange={(e) => setNewVehName(e.target.value)} />
                   <input type="text" placeholder="License plate" value={newVehPlate} onChange={(e) => setNewVehPlate(e.target.value)} required />
                   <input type="text" placeholder="Make or model" value={newVehMake} onChange={(e) => setNewVehMake(e.target.value)} />
-                  <button className="btn-primary span-2" type="submit"><Plus size={16} /> Register Vehicle</button>
+                  <button className="btn-primary span-2" type="submit" disabled={!!actionBusy}><Plus size={16} /> Register Vehicle</button>
                 </form>
               </div>
 
@@ -563,8 +625,8 @@ export default function AdminApp() {
                             </td>
                             <td>
                               <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
-                                <button onClick={() => regenerateQR(v.id)} className="btn-outline icon-button" style={{ width: 'auto', paddingInline: '0.9rem' }}><RefreshCw size={14} /> Reset QR</button>
-                                <button onClick={() => deleteVehicle(v.id)} className="btn-danger icon-button" style={{ width: 'auto', paddingInline: '0.9rem' }}><Trash2 size={14} /> Remove</button>
+                                <button onClick={() => regenerateQR(v.id)} disabled={!!actionBusy} className="btn-outline icon-button" style={{ width: 'auto', paddingInline: '0.9rem' }}><RefreshCw size={14} /> Reset QR</button>
+                                <button onClick={() => deleteVehicle(v.id)} disabled={!!actionBusy} className="btn-danger icon-button" style={{ width: 'auto', paddingInline: '0.9rem' }}><Trash2 size={14} /> Remove</button>
                               </div>
                             </td>
                           </tr>
@@ -697,6 +759,7 @@ export default function AdminApp() {
                           <td>
                             <button
                               onClick={() => unblockScanner(s.phoneNumber)}
+                              disabled={!!actionBusy}
                               className="btn-outline icon-button"
                               style={{ width: 'auto', paddingInline: '0.9rem', color: 'var(--success-color, #10b981)', borderColor: 'var(--success-color, #10b981)' }}
                             >

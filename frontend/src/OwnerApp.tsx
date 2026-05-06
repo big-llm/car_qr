@@ -12,9 +12,9 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { motion, AnimatePresence } from "framer-motion";
 import './App.css';
-import { ApiRequestOptions, parseApiResponse } from './lib/http';
+import { ApiRequestOptions, apiUrl, parseApiResponse } from './lib/http';
 
-const API_BASE_URL = '/api/user';
+const API_BASE_URL = apiUrl('/api/user');
 const ACTIVE_ALERT_STATUSES = ['pending', 'delivered', 'pending_retry'];
 
 type OwnerAppProps = {
@@ -42,6 +42,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   const [authConfirmPassword, setAuthConfirmPassword] = useState('');
   const [registerPhone, setRegisterPhone] = useState('');
   const [authStatus, setAuthStatus] = useState('');
+  const [authError, setAuthError] = useState('');
   const [registerName, setRegisterName] = useState('');
   const [registerAddress, setRegisterAddress] = useState('');
 
@@ -171,10 +172,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     if (token) {
       await handleFcmToken(token);
       setNotificationPermission('granted');
-      alert('Push notifications enabled successfully!');
+      showToast({ title: 'Notifications enabled', message: 'You will receive live vehicle alerts on this device.', tone: 'success' });
     } else {
       if (Notification.permission === 'denied') {
-        alert('Push notifications are blocked by your browser. Please allow them in your site settings.');
+        showToast({ title: 'Notifications blocked', message: 'Allow notifications from your browser site settings to receive push alerts.', tone: 'warning' });
       }
       setNotificationPermission(Notification.permission);
     }
@@ -202,6 +203,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   }, [appToast]);
 
   const showToast = (toast: ToastState) => setAppToast(toast);
+  const showError = (message: string) => showToast({ title: 'Action failed', message, tone: 'danger' });
 
   const authFetch = async (endpoint: string, options: ApiRequestOptions = {}): Promise<any> => {
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -255,15 +257,22 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
   // === AUTHENTICATION ===
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!authEmail || !authPassword) return alert('Enter your email and password.');
+    setAuthError('');
+    if (!authEmail || !authPassword) {
+      setAuthError('Enter your email and password.');
+      return;
+    }
     if (authMode === 'register' && authPassword !== authConfirmPassword) {
-      return alert('Passwords do not match.');
+      setAuthError('Passwords do not match.');
+      return;
     }
     if (authMode === 'register' && !registerPhone) {
-      return alert('Enter the owner phone number for alert notifications.');
+      setAuthError('Enter the owner phone number for alert notifications.');
+      return;
     }
     if (authMode === 'register' && registerPhone && !/^\+[1-9]\d{1,14}$/.test(registerPhone)) {
-      return alert('Enter the owner contact phone in international format, like +919876543210.');
+      setAuthError('Enter the owner contact phone in international format, like +919876543210.');
+      return;
     }
 
     setAuthStatus(authMode === 'register' ? 'Creating owner account...' : 'Signing in...');
@@ -285,14 +294,16 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         });
         setJwt(token);
         window.history.replaceState(null, '', '/owner');
+        showToast({ title: 'Account created', message: 'Your owner dashboard is ready.', tone: 'success' });
       } else {
         const credential = await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
         const token = await credential.user.getIdToken(true);
         setJwt(token);
         window.history.replaceState(null, '', '/owner');
+        showToast({ title: 'Welcome back', message: 'Your garage is loading now.', tone: 'success' });
       }
     } catch (err: any) {
-      alert(err.message || 'Authentication failed.');
+      setAuthError(err.message || 'Authentication failed.');
     } finally { setAuthStatus(''); }
   };
 
@@ -347,7 +358,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         tone: 'success'
       });
     } catch (err: any) {
-      alert(err.message || "Failed to save vehicle");
+      showError(err.message || 'Failed to save vehicle.');
     }
   };
 
@@ -358,7 +369,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       fetchVehicles();
       showToast({ title: 'Vehicle deleted', message: 'The vehicle and its QR record were removed.', tone: 'warning' });
     } catch (err: any) {
-      alert(err.message || "Failed to delete vehicle");
+      showError(err.message || 'Failed to delete vehicle.');
     }
   };
 
@@ -372,7 +383,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       });
       showToast({ title: 'Response sent', message: responseCode.replace(/_/g, ' '), tone: 'success' });
     } catch(e: any) { 
-      alert(e.message || "Failed to respond"); 
+      showError(e.message || 'Failed to respond.'); 
     }
   };
 
@@ -387,7 +398,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     try {
       setAlerts(await authFetch(`/alerts/history?${params.toString()}`));
     } catch (err: any) {
-      alert(err.message || "Failed to load history");
+      showError(err.message || 'Failed to load history.');
     } finally {
       setLoadingData(false);
     }
@@ -399,7 +410,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
        await authFetch(`/vehicles/${vehicleId}/qr-regenerate`, { method: "PUT" });
        fetchVehicles();
        showToast({ title: 'QR regenerated', message: 'Print the new sticker before using this vehicle QR again.', tone: 'success' });
-     } catch(e) { alert("Failed to regenerate"); }
+     } catch(e: any) { showError(e.message || 'Failed to regenerate QR.'); }
   };
 
   const handleDownloadSticker = async (vehicle: any) => {
@@ -462,7 +473,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
       pdf.save(`Sticker-${vehicle.licensePlate}.pdf`);
     } catch(e) {
       console.error(e);
-      alert("Failed to generate sticker. Please try again.");
+      showError('Failed to generate sticker. Please try again.');
     } finally {
       document.body.removeChild(sticker);
     }
@@ -504,9 +515,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         <p style={{marginBottom: "2rem"}}>{authMode === 'register' ? 'Register with email and password, then manage vehicles and QR tags.' : 'Use your owner email and password. OTP is only used by public scanners.'}</p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.5rem' }}>
-          <button type="button" onClick={() => { setAuthMode('login'); window.history.replaceState(null, '', '/login'); }} className={authMode === 'login' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Login</button>
-          <button type="button" onClick={() => { setAuthMode('register'); window.history.replaceState(null, '', '/register'); }} className={authMode === 'register' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Register</button>
+          <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); window.history.replaceState(null, '', '/login'); }} className={authMode === 'login' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Login</button>
+          <button type="button" onClick={() => { setAuthMode('register'); setAuthError(''); window.history.replaceState(null, '', '/register'); }} className={authMode === 'register' ? 'btn-primary' : 'btn-outline'} style={{ padding: '0.7rem' }}>Register</button>
         </div>
+        {authError && <div className="notice notice-danger auth-notice">{authError}</div>}
         
         <form onSubmit={handleEmailAuth}>
           {authMode === 'register' && (
@@ -712,7 +724,17 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                      </div>
                    )
                  })}
-                 {vehicles.length === 0 && <p style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No vehicles registered under this number.</p>}
+                 {vehicles.length === 0 && (
+                   <div className="empty-state surface-card">
+                     <div>
+                       <strong>No vehicles yet</strong>
+                       <p>Add your first vehicle to generate a private QR sticker.</p>
+                       <button type="button" className="btn-primary" onClick={() => setShowVehicleForm(true)}>
+                         <Plus size={16}/> Add Vehicle
+                       </button>
+                     </div>
+                   </div>
+                 )}
                </div>
              )}
            </div>
@@ -803,7 +825,14 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                         )}
                      </div>
                  )})}
-                 {alerts.length === 0 && <p style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No alerts found.</p>}
+                 {alerts.length === 0 && (
+                   <div className="empty-state surface-card">
+                     <div>
+                       <strong>No alerts found</strong>
+                       <p>When someone scans your vehicle QR, alerts will appear here with response actions.</p>
+                     </div>
+                   </div>
+                 )}
                </div>
              )}
            </div>
@@ -855,7 +884,7 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                             setEditingProfile(false);
                             loadProfile();
                             showToast({ title: 'Profile saved', message: 'Your owner contact details were updated.', tone: 'success' });
-                          } catch(e: any) { alert(e.message || "Failed to save"); }
+                          } catch(e: any) { showError(e.message || 'Failed to save profile.'); }
                         }} className="btn-primary" style={{ flex: 1, padding: '0.75rem' }}>Save</button>
                         <button onClick={() => setEditingProfile(false)} className="btn-outline" style={{ flex: 1, padding: '0.75rem' }}>Cancel</button>
                      </div>
@@ -879,7 +908,9 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
                              });
                              loadProfile();
                              showToast({ title: 'Preferences saved', message: 'Notification settings were updated.', tone: 'success' });
-                           } catch {}
+                           } catch (err: any) {
+                             showError(err.message || 'Failed to save notification preferences.');
+                           }
                          }}
                        />
                        System Push Notifications
