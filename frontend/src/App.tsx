@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
+import { parseApiResponse } from './lib/http';
 
 // Using relative routing through Express
 const API_BASE_URL = '/api/scanner';
@@ -25,6 +26,15 @@ type ToastState = {
   title: string;
   message: string;
   tone: 'success' | 'warning' | 'danger';
+};
+
+type ScannerAlertHistory = {
+  id: string;
+  vehicleId: string;
+  status: string;
+  ownerResponse?: string | null;
+  type: string;
+  timestamp: string;
 };
 
 const getDeviceId = () => {
@@ -56,7 +66,7 @@ function App() {
   const [error, setError] = useState('');
   
   // Data for History & Profile
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<ScannerAlertHistory[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loadingData, setLoadingData] = useState(false);
 
@@ -122,7 +132,7 @@ function App() {
       // Always load history to check for active alerts if we're on a vehicle page
       loadHistory().then(historyData => {
         if (historyData && vehicle && !activeAlertId) {
-          const activeAlert = historyData.find((a: any) => 
+          const activeAlert = historyData.find((a) => 
             a.vehicleId === vehicle.id && 
             (a.status === 'pending' || a.status === 'responded')
           );
@@ -202,7 +212,7 @@ function App() {
       try {
         const res = await fetch(`${API_BASE_URL}/qr/alert/${activeAlertId}/public-status`);
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await parseApiResponse<{ status: string; ownerResponse?: string | null }>(res);
         applyUpdate(data.status, data.ownerResponse || null);
         if (TERMINAL.includes(data.status)) clearInterval(pollInterval);
       } catch (_) {}
@@ -246,7 +256,7 @@ function App() {
         headers: { "Authorization": `Bearer ${jwtToken}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await parseApiResponse<Record<string, unknown>>(res);
         setProfile(data);
       }
     } catch (e) {}
@@ -261,7 +271,7 @@ function App() {
         headers: { "Authorization": `Bearer ${jwtToken}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await parseApiResponse<ScannerAlertHistory[]>(res);
         setHistory(data);
         return data;
       }
@@ -272,8 +282,7 @@ function App() {
   const fetchVehicleInfo = async (qrToken: string) => {
     try {
       const res = await fetch(`${API_BASE_URL}/qr/${qrToken}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Vehicle not registered.");
+      const data = await parseApiResponse<{ vehicle: Vehicle }>(res);
       setVehicle(data.vehicle);
     } catch (err: any) {
       setError(err.message);
@@ -364,8 +373,7 @@ function App() {
         body: JSON.stringify({ type: actionToSend, location })
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await parseApiResponse<{ alertId: string }>(res);
 
       setActiveAlertId(data.alertId);
       setAlertSent(true);
@@ -620,7 +628,7 @@ function App() {
                                   animate={{ opacity: [0.4, 1, 0.4], scale: [0.9, 1.15, 0.9] }}
                                   transition={{ duration: 1.5, repeat: Infinity }}
                                 />
-                                <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>Awaiting Owner Response</span>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Awaiting Owner Response</span>
                               </div>
                             </motion.div>
                           )}

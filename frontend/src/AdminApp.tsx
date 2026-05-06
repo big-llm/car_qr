@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import './App.css';
+import { ApiRequestOptions, parseApiResponse } from './lib/http';
 
 const API_BASE_URL = '/api/admin';
 
@@ -75,18 +76,16 @@ export default function AdminApp() {
     if (activeTab === 'abuse') fetchBlockedScanners();
   }, [token, activeTab, userQuery, vehicleQuery]);
 
-  const authFetch = async (url: string, options: any = {}) => {
+  const authFetch = async (url: string, options: ApiRequestOptions = {}): Promise<any> => {
     const res = await fetch(url, {
       ...options,
       headers: { ...options.headers, Authorization: `Bearer ${token}` }
     });
     if (res.status === 401) {
       handleLogout();
-      throw new Error('Session expired');
+      throw new Error('Session expired. Please sign in again.');
     }
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Request failed');
-    return data;
+    return parseApiResponse(res);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -98,8 +97,8 @@ export default function AdminApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userid, password })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
+      const data = await parseApiResponse<{ token?: string }>(res);
+      if (!data.token) throw new Error('Login response did not include an admin token.');
       setToken(data.token);
       localStorage.setItem('admin_token', data.token);
     } catch (err: any) {
@@ -632,7 +631,7 @@ export default function AdminApp() {
                              {a.vehicle ? (
                                <div style={{ fontWeight: 700 }}>{a.vehicle.licensePlate} ({a.vehicle.vehicleName || 'Vehicle'})</div>
                              ) : (
-                               <div className="subtle">UID: {a.vehicleId?.slice(0, 8)}…</div>
+                               <div className="subtle">UID: {a.vehicleId?.slice(0, 8)}...</div>
                              )}
                           </td>
                           <td>
@@ -667,7 +666,7 @@ export default function AdminApp() {
           {activeTab === 'abuse' && (
             <div className="fade-in stack">
               <div className="panel" style={{ borderLeft: '4px solid var(--danger-color, #ef4444)' }}>
-                <h3>🚫 Blocked Scanners</h3>
+                <h3>Blocked Scanners</h3>
                 <p>Numbers that have been automatically or manually blocked due to abuse, harassment, or excessive activity. You can unblock them here if the ban was in error.</p>
               </div>
 
@@ -692,9 +691,9 @@ export default function AdminApp() {
                           </td>
                           <td>
                             {s.lastIp && <div className="subtle">IP: {s.lastIp}</div>}
-                            {s.lastDeviceId && <div className="subtle" style={{ marginTop: '0.2rem', fontSize: '0.72rem' }}>Dev: {s.lastDeviceId.slice(0, 16)}…</div>}
+                            {s.lastDeviceId && <div className="subtle" style={{ marginTop: '0.2rem', fontSize: '0.72rem' }}>Dev: {s.lastDeviceId.slice(0, 16)}...</div>}
                           </td>
-                          <td className="subtle">{s.lastScan ? new Date(s.lastScan).toLocaleString() : '—'}</td>
+                          <td className="subtle">{s.lastScan ? new Date(s.lastScan).toLocaleString() : '-'}</td>
                           <td>
                             <button
                               onClick={() => unblockScanner(s.phoneNumber)}
@@ -710,12 +709,12 @@ export default function AdminApp() {
                   </table>
                 </div>
                 {!loading && blockedScanners.length === 0 && (
-                  <div className="empty-state" style={{ color: 'var(--success-color, #10b981)' }}>✅ No blocked scanners. Platform is clean.</div>
+                  <div className="empty-state" style={{ color: 'var(--success-color, #10b981)' }}>No blocked scanners. Platform is clean.</div>
                 )}
               </div>
 
               <div className="panel">
-                <h3>📊 Abuse Activity Summary</h3>
+                <h3>Abuse Activity Summary</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
                   <div className="metric-card">
                     <div className="metric-label">Total Scanners</div>

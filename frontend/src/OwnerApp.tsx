@@ -12,6 +12,7 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { motion, AnimatePresence } from "framer-motion";
 import './App.css';
+import { ApiRequestOptions, parseApiResponse } from './lib/http';
 
 const API_BASE_URL = '/api/user';
 const ACTIVE_ALERT_STATUSES = ['pending', 'delivered', 'pending_retry'];
@@ -202,24 +203,20 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
 
   const showToast = (toast: ToastState) => setAppToast(toast);
 
-  const authFetch = async (endpoint: string, options: any = {}) => {
+  const authFetch = async (endpoint: string, options: ApiRequestOptions = {}): Promise<any> => {
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers: { ...options.headers, 'Authorization': `Bearer ${jwt || (await auth.currentUser?.getIdToken())}` }
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Request failed");
-    return data;
+    return parseApiResponse(res);
   };
 
-  const authFetchWithToken = async (endpoint: string, token: string, options: any = {}) => {
+  const authFetchWithToken = async (endpoint: string, token: string, options: ApiRequestOptions = {}): Promise<any> => {
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers: { ...options.headers, 'Authorization': `Bearer ${token}` }
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Request failed");
-    return data;
+    return parseApiResponse(res);
   };
 
   const loadDashboard = async () => {
@@ -421,8 +418,8 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
     sticker.style.fontFamily = 'sans-serif';
     sticker.innerHTML = `
       <div style="border: 4px solid #0ea5e9; padding: 25px; border-radius: 20px; background: white;">
-        <h1 style="margin: 0; color: #0ea5e9; font-size: 32px; letter-spacing: 2px;">SAVIOUR</h1>
-        <p style="margin: 5px 0 25px; font-weight: bold; font-size: 14px; color: #64748b;">SMART VEHICLE CONTACT</p>
+        <h1 style="margin: 0; color: #137257; font-size: 32px;">SMARTVEHICLE</h1>
+        <p style="margin: 5px 0 25px; font-weight: bold; font-size: 14px; color: #64748b;">PRIVATE VEHICLE CONTACT</p>
         
         <div style="background: white; padding: 20px; display: inline-block; border-radius: 15px; border: 2px solid #e2e8f0; margin-bottom: 20px;">
           <img id="qr-image-${vehicle.id}" width="220" height="220" />
@@ -432,10 +429,10 @@ export default function OwnerApp({ initialMode = 'login' }: OwnerAppProps) {
         <p style="margin: 5px 0 25px; font-size: 13px; color: #64748b;">In case of emergency or wrong parking</p>
         
         <div style="background: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #e2e8f0;">
-           <span style="font-size: 20px; font-weight: bold; color: #0ea5e9; letter-spacing: 1px;">${vehicle.licensePlate}</span>
+           <span style="font-size: 20px; font-weight: bold; color: #137257;">${vehicle.licensePlate}</span>
         </div>
         
-        <p style="margin-top: 25px; font-size: 10px; color: #94a3b8; font-style: italic;">Powered by Saviour Smart Systems</p>
+        <p style="margin-top: 25px; font-size: 10px; color: #94a3b8; font-style: italic;">Powered by SmartVehicle</p>
       </div>
     `;
     document.body.appendChild(sticker);
